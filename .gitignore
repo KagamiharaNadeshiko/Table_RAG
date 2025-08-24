@@ -277,7 +277,8 @@ output/
 *.json
 !requirements.txt
 !prompt.py
-
+!config/database_config.json
+!config/llm_config.json
 
 # Temporary files
 temp/

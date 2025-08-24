@@ -1,8 +1,6 @@
-# TableRAG: 異質文件推理的檢索增強生成框架
+# TableRAG: 
 
-## 簡介
 
-TableRAG是一個**混合（SQL執行和文本檢索）框架**，統一了文本理解和複雜的表格數據操作。我們識別出在異質文件問答情境下，現有RAG方法的兩個關鍵限制：結構資訊遺失和缺乏全局視角。
 
 **核心特點：**
 - **語義檢索**: 使用BGE-M3模型進行智能文檔檢索
@@ -60,7 +58,7 @@ CREATE DATABASE TableRAG;
 
 ```bash
 # 1. 配置數據庫連接
-vim offline_data_ingestion_and_query_interface/config/database_config.json
+ offline_data_ingestion_and_query_interface/config/database_config.json
 
 {
     "host": "localhost",
@@ -71,8 +69,8 @@ vim offline_data_ingestion_and_query_interface/config/database_config.json
 }
 
 # 2. 準備數據文件
-# 解壓dev_excel.zip到指定目錄
-unzip dev_excel.zip -d offline_data_ingestion_and_query_interface/dataset/hybridqa/dev_excel/
+# 準備表格到指定目錄
+offline_data_ingestion_and_query_interface/dataset/hybridqa/dev_excel/
 
 # 3. 執行數據攝取
 cd offline_data_ingestion_and_query_interface/src/
@@ -156,7 +154,7 @@ python main.py \
 - **多表格支持**: 支持跨表格的聯合查詢
 - **向後兼容**: 仍支持手動指定 `table_id`
 
-### 方式2: 命令行交互 (推薦用於測試)
+### 方式2: 命令行交互 (用於測試)
 
 ```bash
 cd online_inference
