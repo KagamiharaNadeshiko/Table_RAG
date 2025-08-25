@@ -10,8 +10,8 @@ qwen2_57b_config = {
     "api_key": ""
 }
 
-sql_service_url = 'url for sql service' 
-
+# 配置您的SQL服务地址（offline部分的Flask服务）
+sql_service_url = 'http://localhost:5000/get_tablerag_response'
 
 config_mapping = {
     "v3": v3_config,
