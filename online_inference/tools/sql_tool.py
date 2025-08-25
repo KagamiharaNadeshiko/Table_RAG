@@ -82,8 +82,16 @@ def get_excel_rag_response_plain(table_name_list: list = [], query: str = None) 
         'Content-Type': 'application/json',
     }
 
+    # 去重并保持顺序，避免中文/别名重复
+    dedup = []
+    seen = set()
+    for t in table_name_list or []:
+        if t not in seen:
+            dedup.append(t)
+            seen.add(t)
+
     body = {
-        'table_name_list': table_name_list,
+        'table_name_list': dedup,
         'query': query
     }
     

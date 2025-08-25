@@ -11,7 +11,8 @@ from tools.retriever import *
 from tools.sql_tool import *
 from config import *
 from utils.utils import read_in, read_in_lines, read_plain_csv
-from typing import Dict, Tuple, Any, List
+from utils.tool_utils import excel_to_markdown
+from typing import Dict, Tuple, Any, List, Set
 import threading
 import traceback
 import copy
@@ -19,6 +20,7 @@ import time
 from prompt import *
 from chat_utils import init_logger
 import logging
+from utils.canonical_table_map import CanonicalTableIndex
 
 # 初始化logger
 logger = init_logger('./logs/test.log', logging.INFO)
@@ -37,6 +39,8 @@ class TableRAG() :
         self.config = _args
         self.max_iter = min(_args.max_iter, MAX_ITER)
         self.cnt = 0
+        # Build canonical table mapping index
+        self.table_index = CanonicalTableIndex(schema_dir=_args.doc_dir, excel_dir=_args.excel_dir)
         self.retriever = MixedDocRetriever(
             doc_dir_path=_args.doc_dir,
             excel_dir_path=_args.excel_dir,
@@ -129,27 +133,67 @@ class TableRAG() :
 
     def auto_select_table(self, query: str, top_k: int = 3) -> Tuple[str, List[str]]:
         """
-        智能選擇最相關的表格
+        智能選擇最相關的表格，並用啟發式降低通用別名（如年份“2024”）干擾，
+        優先選擇別名中包含查詢關鍵詞（如公司名）的表。
         
         Args:
             query: 用戶查詢
-            top_k: 返回前k個最相關的表格
+            top_k: 返回前k個最相關的表格（最終返回的相關表列表也不超過此數）
             
         Returns:
             Tuple[str, List[str]]: (最相關表格名, 相關表格列表)
         """
-        # 直接使用檢索器找到最相關的文檔
-        _, _, doc_filenames = self.retriever.retrieve(query, 30, top_k)
-        
-        # 清理文件名，移除擴展名
-        table_names = []
+        # 使用檢索器獲取候選
+        _, _, doc_filenames = self.retriever.retrieve(query, 30, max(top_k, 3))
+
+        # 將檢索文件名映射為規範ID，並基於別名與查詢的匹配程度打分
+        scored: List[Tuple[str, float]] = []  # (canonical_id, score)
+        seen: Set[str] = set()
+
+        # 提取查詢中的關鍵字串（簡單啟發式：長度>=2的連續中英文數字片段）
+        try:
+            import re as _re
+            query_terms = [t for t in _re.findall(r"[\u4e00-\u9fa5A-Za-z0-9]+", query) if len(t) >= 2]
+        except Exception:
+            query_terms = [query] if len(query) >= 2 else []
+
+        def _alias_score(aliases: List[str]) -> float:
+            score = 0.0
+            for alias in aliases:
+                lower_alias = alias.lower()
+                # 降權：純年份/通用短別名
+                if lower_alias.isdigit() and len(lower_alias) == 4:
+                    score -= 2.0
+                if len(lower_alias) <= 2:
+                    score -= 0.5
+                # 提升：別名包含查詢關鍵詞，或關鍵詞包含於別名
+                for term in query_terms:
+                    lower_term = term.lower()
+                    if lower_term in lower_alias or lower_alias in lower_term:
+                        score += 2.0
+            return score
+
         for filename in doc_filenames:
-            table_name = filename.replace(".json", "").replace(".xlsx", "")
-            table_names.append(table_name)
-        
-        # 返回最相關的表格和所有相關表格列表
-        top_table = table_names[0] if table_names else "sample_table"
-        return top_table, table_names
+            stem = filename.replace(".json", "").replace(".xlsx", "")
+            cid = self.table_index.get_canonical_id(stem)
+            if not cid or cid in seen:
+                continue
+            seen.add(cid)
+            aliases = self.table_index.get_aliases(cid)
+            score = _alias_score(aliases)
+            scored.append((cid, score))
+
+        # 如無候選，回退
+        if not scored:
+            return "sample_table", []
+
+        # 依分數排序，分數相同保留原順序
+        scored.sort(key=lambda x: x[1], reverse=True)
+
+        # 取前 top_k 作為相關表
+        canonical_ids = [cid for cid, _ in scored[:top_k]]
+        top_table = canonical_ids[0]
+        return top_table, canonical_ids
 
     def _run(self, case: dict, backbone: str, tmp: Any = None) :
         """
@@ -170,7 +214,12 @@ class TableRAG() :
             top_table = doc_filenames[0].replace(".json", "").replace(".xlsx", "")
             related_tables = [top_table]
 
-        related_table_name_list = related_tables
+        # 将相关表格（规范ID）转换为适合SQL服务的别名集合
+        related_table_name_list = []
+        for cid in related_tables:
+            for alias in self.table_index.best_service_aliases(cid):
+                if alias not in related_table_name_list:
+                    related_table_name_list.append(alias)
 
         tools = self.create_tools()
         current_iter = self.max_iter
@@ -248,13 +297,22 @@ class TableRAG() :
 
     def construct_initial_prompt(self, case: dict, top1_table_name: str) -> Any :
         query = case["question"]
-
-        table_id = top1_table_name + ".csv"
-        csv_file_path = os.path.join(self.config.excel_dir, table_id)
-        if os.path.exists(csv_file_path) :
-            markdown_text = read_plain_csv(csv_file_path)
-        else :
-            markdown_text = "Can NOT find table content!"
+        # top1_table_name 现在是规范ID，优先寻找对应excel文件
+        markdown_text = "Can NOT find table content!"
+        preferred_excel = None
+        cid = self.table_index.get_canonical_id(top1_table_name) or top1_table_name
+        preferred_excel = self.table_index.get_preferred_excel_file(cid)
+        if preferred_excel:
+            stem, ext = os.path.splitext(preferred_excel)
+            # 如果存在同名csv，则优先读取csv为markdown
+            csv_path = os.path.join(self.config.excel_dir, stem + ".csv")
+            if os.path.exists(csv_path):
+                markdown_text = read_plain_csv(csv_path)
+            else:
+                # 回退读取xlsx为markdown
+                excel_path = os.path.join(self.config.excel_dir, preferred_excel)
+                if os.path.exists(excel_path):
+                    markdown_text = excel_to_markdown(excel_path)
         
         inital_prompt = SYSTEM_EXPLORE_PROMPT.format(query=query, table_content=markdown_text)
         logger.info(f"Inital prompt: {inital_prompt}")
