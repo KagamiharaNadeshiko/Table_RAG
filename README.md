@@ -97,6 +97,7 @@ model_request_config = {
 }
 
 # 2. 啟動服務
+cd ooffline_data_ingestion_and_query_interface/src
 python interface.py
 # 服務將在 http://localhost:5000 啟動
 ```
