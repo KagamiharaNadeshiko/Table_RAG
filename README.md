@@ -70,7 +70,7 @@ CREATE DATABASE TableRAG;
 
 # 2. 準備數據文件
 # 準備表格到指定目錄
-offline_data_ingestion_and_query_interface/dataset/hybridqa/dev_excel/
+offline_data_ingestion_and_query_interface/dataset/dev_excel/
 
 # 3. 執行數據攝取
 cd offline_data_ingestion_and_query_interface/src/
