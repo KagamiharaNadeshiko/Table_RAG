@@ -8,12 +8,14 @@ def _slugify(name: str) -> str:
     """
     Create a readable, stable canonical id from a filename or table name.
     - Lowercase
-    - Replace non-alphanumeric with underscore
+    - Preserve CJK characters so that names like "华为_2024财报" remain distinct
+    - Replace other non-alphanumeric/CJK characters with underscore
     - Collapse consecutive underscores
     - Trim leading/trailing underscores
     """
     lowered = name.lower()
-    replaced = re.sub(r"[^0-9a-zA-Z]+", "_", lowered)
+    # Keep 0-9, a-z, A-Z, and common CJK range \u4e00-\u9fa5
+    replaced = re.sub(r"[^0-9a-zA-Z\u4e00-\u9fa5]+", "_", lowered)
     collapsed = re.sub(r"_+", "_", replaced)
     return collapsed.strip("_")
 

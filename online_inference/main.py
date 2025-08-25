@@ -146,9 +146,11 @@ class TableRAG() :
         # 使用檢索器獲取候選
         _, _, doc_filenames = self.retriever.retrieve(query, 30, max(top_k, 3))
 
-        # 將檢索文件名映射為規範ID，並基於別名與查詢的匹配程度打分
+        # 將檢索文件名映射為規範ID，並基於別名與查詢/文件名的匹配程度打分
         scored: List[Tuple[str, float]] = []  # (canonical_id, score)
-        seen: Set[str] = set()
+        best_score_by_cid: Dict[str, float] = {}
+        strong_match_by_cid: Dict[str, bool] = {}
+        is_year_like_cid: Dict[str, bool] = {}
 
         # 提取查詢中的關鍵字串（簡單啟發式：長度>=2的連續中英文數字片段）
         try:
@@ -176,22 +178,61 @@ class TableRAG() :
         for filename in doc_filenames:
             stem = filename.replace(".json", "").replace(".xlsx", "")
             cid = self.table_index.get_canonical_id(stem)
-            if not cid or cid in seen:
+            if not cid:
                 continue
-            seen.add(cid)
             aliases = self.table_index.get_aliases(cid)
             score = _alias_score(aliases)
+            # 文件名匹配加分
+            lower_filename = stem.lower()
+            for term in query_terms:
+                lower_term = term.lower()
+                if lower_term in lower_filename:
+                    score += 3.0
+            # 判斷強匹配（文件名或別名包含查詢詞）
+            has_strong = False
+            if any(t.lower() in lower_filename for t in query_terms):
+                has_strong = True
+            else:
+                for alias in aliases:
+                    la = alias.lower()
+                    if any((t.lower() in la) or (la in t.lower()) for t in query_terms):
+                        has_strong = True
+                        break
+
+            # 記錄是否為年份樣式的CID
+            is_year_like = cid.isdigit() and len(cid) == 4
+
+            # 同一規範ID取最高分
+            if cid not in best_score_by_cid or score > best_score_by_cid[cid]:
+                best_score_by_cid[cid] = score
+                strong_match_by_cid[cid] = has_strong
+                is_year_like_cid[cid] = is_year_like
+
+        for cid, score in best_score_by_cid.items():
             scored.append((cid, score))
+
+        # 優先：只保留強匹配的候選
+        strong_scored = [(cid, sc) for cid, sc in scored if strong_match_by_cid.get(cid, False)]
+        candidates = strong_scored if strong_scored else scored
+
+        # 若仍無強匹配，避免選取年份類CID（如2024）除非其分數明顯高（>=1.0）
+        if not strong_scored:
+            filtered = []
+            for cid, sc in candidates:
+                if is_year_like_cid.get(cid, False) and sc < 1.0:
+                    continue
+                filtered.append((cid, sc))
+            candidates = filtered if filtered else candidates
 
         # 如無候選，回退
         if not scored:
             return "sample_table", []
 
         # 依分數排序，分數相同保留原順序
-        scored.sort(key=lambda x: x[1], reverse=True)
+        candidates.sort(key=lambda x: x[1], reverse=True)
 
         # 取前 top_k 作為相關表
-        canonical_ids = [cid for cid, _ in scored[:top_k]]
+        canonical_ids = [cid for cid, _ in candidates[:top_k]]
         top_table = canonical_ids[0]
         return top_table, canonical_ids
 
@@ -242,9 +283,14 @@ class TableRAG() :
                 return answer, text_messages
             
             if not sub_queries :
+                # Prompt the model to synthesize a final answer when no new tool call is made
                 text_messages.append({
                     "role": "user",
-                    "content": "ERROR: Did not call tool with a suquery!"
+                    "content": (
+                        "If you have sufficient information from prior subquery answers, "
+                        "please provide the final answer now using the exact format:\n"
+                        "<Answer>: [your complete response]"
+                    )
                 })
                 continue
 
@@ -291,6 +337,16 @@ class TableRAG() :
                     "content": "Subquery Answer: " + answer
                 }
                 text_messages.append(execution_message)
+
+                # Nudge the assistant to proceed and produce the final answer if ready
+                text_messages.append({
+                    "role": "user",
+                    "content": (
+                        "Continue reasoning based on the subquery answer above. "
+                        "If the information is sufficient, output the final answer now in the format:\n"
+                        "<Answer>: [your complete response]"
+                    )
+                })
 
         return None, text_messages
 
