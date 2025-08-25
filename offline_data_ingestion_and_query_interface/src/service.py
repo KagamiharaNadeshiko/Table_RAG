@@ -2,10 +2,34 @@
 import re
 import json
 import time
+import os
 from log_service import logger
 from prompt import *
 from handle_requests import get_llm_response
 from common_utils import transfer_name, SCHEMA_DIR, sql_alchemy_helper
+
+
+def find_actual_schema_file(base_table_name):
+    """
+    根据基础表名查找实际的schema文件（可能带有哈希后缀）
+    
+    Args:
+        base_table_name (str): 基础表名（如 'financial_report_2024'）
+    
+    Returns:
+        str: 实际的schema文件名，如果找不到则返回None
+    """
+    if not os.path.exists(SCHEMA_DIR):
+        return None
+    
+    # 查找匹配的文件
+    for filename in os.listdir(SCHEMA_DIR):
+        if filename.endswith('.json'):
+            # 检查文件名是否以基础表名开头
+            if filename.startswith(base_table_name + '_') or filename == base_table_name + '.json':
+                return filename
+    
+    return None
 
 
 def extract_sql_statement(resp_content):  
@@ -45,10 +69,31 @@ def process_tablerag_request(table_name_list, query):
 
     schema_list = []
     for table_name in table_name_list:
-        table_name = transfer_name(table_name)
-        schema_path = f"{SCHEMA_DIR}/{table_name}.json"
-        schema_dict = json.load(open(schema_path, 'r', encoding='utf-8'))
-        schema_list.append(schema_dict)
+        # 转换表名
+        converted_table_name = transfer_name(table_name)
+        
+        # 查找实际的schema文件
+        actual_filename = find_actual_schema_file(converted_table_name)
+        
+        if actual_filename is None:
+            logger.error(f"Schema file not found for table: {converted_table_name}")
+            continue
+            
+        schema_path = os.path.join(SCHEMA_DIR, actual_filename)
+        
+        try:
+            schema_dict = json.load(open(schema_path, 'r', encoding='utf-8'))
+            schema_list.append(schema_dict)
+        except Exception as e:
+            logger.error(f"Failed to load schema file {schema_path}: {e}")
+            continue
+    
+    if not schema_list:
+        logger.error("No valid schema files found")
+        return {
+            'error': 'No valid schema files found',
+            'query': query
+        }
     
     nl2sql_prompt = NL2SQL_USER_PROMPT.format(
         schema_list=json.dumps(schema_list, ensure_ascii=False),
