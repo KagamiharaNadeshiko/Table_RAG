@@ -55,7 +55,17 @@ class SemanticRetriever :
         self.index_lock = threading.RLock()
 
         print("embedding size", doc_embeddings.shape)
-        self.res = faiss.StandardGpuResources()
+        
+        # 检查GPU是否可用，如果不可用则使用CPU模式
+        try:
+            self.res = faiss.StandardGpuResources()
+            self.use_gpu = True
+            print("使用GPU模式")
+        except AttributeError:
+            self.res = None
+            self.use_gpu = False
+            print("GPU不可用，使用CPU模式")
+        
         self.index_IP = self.build_index(doc_embeddings)
 
     def embed_doc(self, chunks: List[str], batch_size: int = 512, save_path: str = None) -> Any :
@@ -134,13 +144,23 @@ class SemanticRetriever :
         with self.index_lock :
             _, dim = dense_vector.shape
             index_IP = faiss.IndexFlatIP(dim)
-            co = faiss.GpuClonerOptions()
-
-            # make it to gpu index
-            # index_gpu = faiss.index_cpu_to_gpu(provider=self.res, device=2, index=index_IP, options=co)
-            index_gpu = index_IP
+            
+            if self.use_gpu and self.res is not None:
+                # GPU模式
+                try:
+                    co = faiss.GpuClonerOptions()
+                    index_gpu = faiss.index_cpu_to_gpu(provider=self.res, device=0, index=index_IP, options=co)
+                    print("使用GPU索引")
+                except Exception as e:
+                    print(f"GPU索引创建失败，回退到CPU模式: {e}")
+                    index_gpu = index_IP
+                    self.use_gpu = False
+            else:
+                # CPU模式
+                index_gpu = index_IP
+                print("使用CPU索引")
+            
             index_gpu.add(dense_vector)
-
             return index_gpu
 
     def retrieve(self, query, recall_num, rerank_num) :
