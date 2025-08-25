@@ -65,8 +65,8 @@ def interactive_chat():
                 bge_dir=sys.argv[4] if len(sys.argv) > 4 else "./bge_models"
             )
         else:
-            # 否则使用默认值
-            args = Args("qwen2.57b", "./data/schema", "./data/dataset/dev_excel", "./bge_models")
+            # 使用已有的offline数据路径
+            args = Args("qwen2.57b", "../offline_data_ingestion_and_query_interface/data/schema", "../offline_data_ingestion_and_query_interface/dataset/dev_excel", "./bge_models")
         
         print(f"正在初始化 TableRAG (使用模型: {args.backbone})...")
         agent = TableRAG(args)
@@ -153,8 +153,8 @@ def print_available_tables(agent):
     
     try:
         # 獲取所有表格文件
-        schema_dir = "./data/schema"
-        excel_dir = "./data/dataset/dev_excel"
+        schema_dir = "../offline_data_ingestion_and_query_interface/data/schema"
+        excel_dir = "../offline_data_ingestion_and_query_interface/dataset/dev_excel"
         
         tables = []
         
@@ -220,9 +220,9 @@ def main():
     parser = argparse.ArgumentParser(description="TableRAG 交互式聊天界面")
     parser.add_argument('--backbone', type=str, default='gpt-4o', 
                        help='選擇LLM模型 (gpt-4o, qwen2.57b, v3)')
-    parser.add_argument('--doc_dir', type=str, default='./data/schema',
+    parser.add_argument('--doc_dir', type=str, default='../offline_data_ingestion_and_query_interface/data/schema',
                        help='文檔目錄路徑')
-    parser.add_argument('--excel_dir', type=str, default='./data/dataset/dev_excel',
+    parser.add_argument('--excel_dir', type=str, default='../offline_data_ingestion_and_query_interface/dataset/dev_excel',
                        help='Excel文件目錄路徑')
     parser.add_argument('--bge_dir', type=str, default='./bge_models',
                        help='BGE模型目錄路徑')
