@@ -11,7 +11,8 @@ from dtype_mapping import (
     SPECIAL_INTEGER_DTYPE_MAPPING
 )
 import warnings
-from common_utils import transfer_name, SCHEMA_DIR, sql_alchemy_helper
+from common_utils import transfer_name, SCHEMA_DIR, sql_alchemy_helper, PROJECT_ROOT
+import hashlib
 
 
 def infer_and_convert(series):
@@ -87,14 +88,14 @@ def get_schema_and_data(df):
 
     return column_list
 
-def generate_schema_info(df: pd.DataFrame, file_name: str):
+def generate_schema_info(df: pd.DataFrame, file_name: str, file_content_hash: str = None):
     try:
         column_list = get_schema_and_data(df)
     except:
         print(f"{file_name} 列存在问题")
         raise ValueError(f"Error processing file: {file_name}")
 
-    table_name = transfer_name(file_name)
+    table_name = transfer_name(file_name, file_content_hash)
 
     schema_dict = {
         'table_name': table_name,
@@ -154,10 +155,14 @@ def parse_excel_file_and_insert_to_db(excel_file_outer_dir: str):
             full_path = os.path.join(excel_file_outer_dir, file_name)
             df = pd.read_excel(full_path)
             
+            # 计算文件内容的哈希值，确保唯一性
+            file_content = df.to_string()
+            file_content_hash = hashlib.md5(file_content.encode('utf-8')).hexdigest()
+            
             df_convert = df.apply(infer_and_convert)
             df_convert = transfer_df_columns(df_convert)
 
-            schema_dict, table_name = generate_schema_info(df_convert, file_name)
+            schema_dict, table_name = generate_schema_info(df_convert, file_name, file_content_hash)
 
             # 确保目录存在
             if not os.path.exists(SCHEMA_DIR):
@@ -170,5 +175,7 @@ def parse_excel_file_and_insert_to_db(excel_file_outer_dir: str):
 
 
 if __name__ == "__main__":
-    parse_excel_file_and_insert_to_db('../dataset/hybridqa/dev_excel/')
+    # 使用相对于项目根目录的正确路径
+    excel_dir = os.path.join(PROJECT_ROOT, 'dataset', 'dev_excel')
+    parse_excel_file_and_insert_to_db(excel_dir)
 
