@@ -1,6 +1,3 @@
-# TableRAG API 服務與 CLI（本地開發）
-
-本文件提供 TableRAG 的快速開始、常見操作、與完整 API 參考。
 
 ## 快速開始（Quick Start）
 
@@ -121,7 +118,6 @@ python apiserve/cli/tables.py
 
 ## 組態（Config）
 
-- 全域組態檔：`apiserve/config.json`（可選）
 - 預設值（源自 `apiserve/deps.py`）：
   - **doc_dir**: `offline_data_ingestion_and_query_interface/data/schema`
   - **excel_dir**: `offline_data_ingestion_and_query_interface/dataset/dev_excel`
@@ -274,12 +270,3 @@ python apiserve/cli/tables.py
   - 適用：`/chat/ask`
   - 用途：回答生成所用的模型
 
-## 運行與偵錯
-
-- 啟動（開發模式）：
-
-```powershell
-uvicorn apiserve.main:app --host 127.0.0.1 --port 8000 --reload
-```
-
-- 互動式文件：前往 `http://127.0.0.1:8000/docs`
