@@ -15,13 +15,13 @@ import tqdm as tqdm
 from collections import defaultdict
 from transformers import AutoModel
 import transformers
-from utils.tool_utils import *
+from online_inference.utils.tool_utils import *
 import nltk
 from more_itertools import chunked
 import numpy as np
 import pickle
 from typing import Dict, List, Union, Tuple, Any
-from utils.utils import read_plain_csv
+from online_inference.utils.utils import read_plain_csv
 
 warnings.filterwarnings("ignore", category=urllib3.exceptions.InsecureRequestWarning)
 device = "cuda:0"
@@ -37,19 +37,36 @@ class SemanticRetriever :
         chunk_file_index: Dict = None,
         llm_path: str = None,
         reranker_path: str = None,
-        save_path: str = "./retrieval_result/embedding.pkl"
+        save_path: str = "./retrieval_result/embedding.pkl",
+        embedding_policy: str = "build_if_missing"  # options: load_only | build_if_missing | rebuild
     ) -> None:
         self.embedding_model = Embedder(llm_path)
         self.reranker = Reranker(reranker_path)
 
-        if os.path.exists(save_path) :
-            doc_embeddings, self.chunks, self.chunk_file_index = self.load_embeddings(save_path)
-            self.chunk_index = {idx: ch for idx, ch in enumerate(self.chunks)}
-        else :
-            self.chunks = chunks
-            self.chunk_index = chunk_index
-            self.chunk_file_index = chunk_file_index
+        # normalize policy
+        policy = (embedding_policy or "build_if_missing").lower()
+        if policy not in {"load_only", "build_if_missing", "rebuild"}:
+            policy = "build_if_missing"
+
+        self.chunks = chunks
+        self.chunk_index = chunk_index
+        self.chunk_file_index = chunk_file_index
+
+        if policy == "rebuild":
+            # always rebuild and overwrite
             doc_embeddings = self.embed_doc(chunks, save_path=save_path)
+        elif policy == "load_only":
+            if os.path.exists(save_path):
+                doc_embeddings, self.chunks, self.chunk_file_index = self.load_embeddings(save_path)
+                self.chunk_index = {idx: ch for idx, ch in enumerate(self.chunks)}
+            else:
+                raise FileNotFoundError(f"Embeddings not found at {save_path} while policy=load_only")
+        else:  # build_if_missing
+            if os.path.exists(save_path):
+                doc_embeddings, self.chunks, self.chunk_file_index = self.load_embeddings(save_path)
+                self.chunk_index = {idx: ch for idx, ch in enumerate(self.chunks)}
+            else:
+                doc_embeddings = self.embed_doc(chunks, save_path=save_path)
         
         self.thread_local = threading.local()
         self.index_lock = threading.RLock()
@@ -191,7 +208,8 @@ class MixedDocRetriever :
         excel_dir_path: str,
         llm_path: str = None,
         reranker_path: str = None,
-        save_path: str = "./retrieve_result/embedding.pkl"
+        save_path: str = "./retrieve_result/embedding.pkl",
+        embedding_policy: str = "build_if_missing"
     ) -> None:
         self.ori_documents = self.load_hybrid_dataset(doc_dir_path, excel_dir_path)
         print("Loading done.")
@@ -204,7 +222,8 @@ class MixedDocRetriever :
             chunk_file_index=self.chunk_to_filename,
             llm_path=llm_path,
             reranker_path=reranker_path,
-            save_path=save_path
+            save_path=save_path,
+            embedding_policy=embedding_policy
         )
 
     def load_hybrid_dataset(self, doc_dir_path: str, excel_dir_path: str) -> Dict[str, List[str]] :

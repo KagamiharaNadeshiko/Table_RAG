@@ -3,10 +3,10 @@ import re
 import json
 import time
 import os
-from log_service import logger
-from prompt import *
-from handle_requests import get_llm_response
-from common_utils import transfer_name, SCHEMA_DIR, sql_alchemy_helper
+from .log_service import logger
+from .prompt import *
+from .handle_requests import get_llm_response
+from .common_utils import transfer_name, SCHEMA_DIR, sql_alchemy_helper
 
 
 def find_actual_schema_file(base_table_name):

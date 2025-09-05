@@ -16,20 +16,21 @@ from utils.utils import read_plain_csv
 function_lock = threading.Lock()
 logger = init_logger('./logs/test.log', logging.INFO)
 
-def with_retry(max_retries=3, backoff_factor=5) :
-    def decorator(func) :
+def with_retry(max_retries=3, backoff_factor=5):
+    def decorator(func):
         @wraps(func)
-        def wrapper(*args, kwargs) :
+        def wrapper(*args, **kwargs):
             retries = 0
-            while retries < max_retries :
-                try :
-                    return func(*args, *kwargs)
-                except Exception as e :
+            while retries < max_retries:
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
                     retries += 1
-                    if retries > max_retries :
+                    if retries >= max_retries:
                         raise e
                     wait_time = backoff_factor * (2 ** (retries - 1))
-                    print(f"Retry {retries}/{max_retries} after {wait_time: .2f}s due to {e}")
+                    print(f"Retry {retries}/{max_retries} after {wait_time:.2f}s due to {e}")
+                    time.sleep(wait_time)
         return wrapper
     return decorator
 
@@ -96,15 +97,22 @@ def get_excel_rag_response_plain(table_name_list: list = [], query: str = None) 
     }
     
     try_times = 5
-    while True :
-        try :
+    backoff = 1.0
+    while try_times > 0:
+        resp = None
+        try:
             resp = requests.post(url=url, json=body, headers=headers, verify=False, timeout=60)
             answer = json.loads(resp.text)
             return answer
-        except Exception as e :
-            logger.error(f"SQL error, the model return is : {resp.text}")
+        except Exception as e:
+            safe_text = getattr(resp, 'text', str(e))
+            logger.error(f"SQL error, response: {safe_text}")
             traceback.print_exc()
             try_times -= 1
+            if try_times <= 0:
+                break
+            time.sleep(backoff)
+            backoff = min(backoff * 2, 8.0)
     return {}
 
 

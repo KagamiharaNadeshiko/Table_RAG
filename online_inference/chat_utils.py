@@ -58,6 +58,21 @@ def get_chat_result(
             "temperature": 0.1,
             "stream": False
         }
+        
+        # Add no_think mode if specified in config
+        if llm_config.get('no_think', False):
+            payload["options"] = {
+                "num_ctx": 4096,
+                "num_predict": 2048,
+                "stop": ["<|im_start|>", "<|im_end|>", "<|endoftext|>"],
+                "temperature": 0.1,
+                "top_p": 0.9,
+                "repeat_penalty": 1.1,
+                "num_gpu": 1,
+                "num_thread": 8,
+                "no_think": True
+            }
+        
         if tools:
             payload["tools"] = tools
             
@@ -69,7 +84,7 @@ def get_chat_result(
                 service_url,
                 json=payload,
                 headers=headers,
-                timeout=60
+                timeout=300
             )
             response.raise_for_status()
             return json.loads(response.text)['choices'][0]["message"]
@@ -110,7 +125,7 @@ def get_chat_result(
             service_url,
             json=payload,
             headers=headers,
-            timeout=60
+            timeout=300
         )
         response.raise_for_status()
         return json.loads(response.text)['choices'][0]["message"]

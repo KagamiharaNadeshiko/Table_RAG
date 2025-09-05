@@ -3,15 +3,25 @@ import pandas as pd
 import json
 import random as randum
 from tqdm import tqdm
-from service import transfer_name
-from dtype_mapping import (
-    INTEGER_DTYPE_MAPPING,
-    FLOAT_DTYPE_MAPPING,
-    OTHER_DTYPE_MAPPING,
-    SPECIAL_INTEGER_DTYPE_MAPPING
-)
+try:
+    from .dtype_mapping import (
+        INTEGER_DTYPE_MAPPING,
+        FLOAT_DTYPE_MAPPING,
+        OTHER_DTYPE_MAPPING,
+        SPECIAL_INTEGER_DTYPE_MAPPING
+    )
+except ImportError:
+    from dtype_mapping import (
+        INTEGER_DTYPE_MAPPING,
+        FLOAT_DTYPE_MAPPING,
+        OTHER_DTYPE_MAPPING,
+        SPECIAL_INTEGER_DTYPE_MAPPING
+    )
 import warnings
-from common_utils import transfer_name, SCHEMA_DIR, sql_alchemy_helper, PROJECT_ROOT
+try:
+    from offline_data_ingestion_and_query_interface.src.common_utils import transfer_name, SCHEMA_DIR, sql_alchemy_helper, PROJECT_ROOT
+except ImportError:
+    from offline_data_ingestion_and_query_interface.src.common_utils import transfer_name, SCHEMA_DIR, sql_alchemy_helper, PROJECT_ROOT
 import hashlib
 
 
@@ -99,7 +109,9 @@ def generate_schema_info(df: pd.DataFrame, file_name: str, file_content_hash: st
 
     schema_dict = {
         'table_name': table_name,
-        'column_list': column_list           
+        'column_list': column_list,
+        'original_filename': file_name,
+        'source_file_hash': file_content_hash
     }
 
     return schema_dict, table_name

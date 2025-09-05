@@ -39,7 +39,7 @@ def read_csv(file_path) :
     headers = header_line.split("\t")
 
     for i in range(1, len(lines)) :
-        line = line[i].strip()
+        line = lines[i].strip()
         if line :
             values = line.split("\t")
             row_dict = {}

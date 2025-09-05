@@ -10,72 +10,80 @@ from chat_utils import init_logger
 import logging
 
 def create_sample_case(question: str, table_id: str = "auto") -> Dict[str, Any]:
-    """
-    創建一個樣本案例用於TableRAG處理
-    支持智能表格選擇：當table_id為"auto"時，系統會自動選擇最相關的表格
-    """
+
     return {
         "question": question,
         "table_id": table_id  # 默認為"auto"，表示自動選擇表格
     }
 
-def interactive_chat():
+def interactive_chat(args=None):
     """
-    交互式聊天主函數
+    交互式聊天主函數（精簡版）
     """
-    print("歡迎使用 TableRAG 智能表格查詢系統!")
-    print("=" * 60)
-    print("您可以直接問我關於數據的問題，系統會自動選擇最相關的表格：")
-    print("   '這個表格中有多少行數據？'")
-    print("   '找出銷售額最高的產品'")
-    print("   '計算平均價格'")
-    print("   '顯示前10名的記錄'")
-    print("   '列出所有部門的員工數量'")
-    print("=" * 60)
-    print("系統特點：")
-    print("   智能表格選擇 - 無需指定表格名稱")
-    print("   自然語言查詢 - 直接問問題即可")
-    print("   多跳推理 - 支持複雜問題分析")
-    print("   詳細推理過程 - 可查看分析步驟")
-    print("=" * 60)
-    print("輸入 'quit' 或 'exit' 退出聊天")
-    print("輸入 'help' 查看幫助信息")
-    print("輸入 'tables' 查看可用的表格列表")
-    print("=" * 60)
+    # 最小輸出模式：不打印橫幅/提示
 
     # 初始化TableRAG
     try:
-        # 創建參數對象
-        class Args:
-            def __init__(self, backbone, doc_dir, excel_dir, bge_dir, max_iter=5):
-                self.backbone = backbone
-                self.doc_dir = doc_dir
-                self.excel_dir = excel_dir
-                self.bge_dir = bge_dir
-                self.max_iter = max_iter
-
-        # 使用命令行参数
-        import sys
-        if len(sys.argv) > 1:
-            # 如果有命令行参数，使用它们
-            args = Args(
-                backbone=sys.argv[1] if len(sys.argv) > 1 else "qwen2.57b",
-                doc_dir=sys.argv[2] if len(sys.argv) > 2 else "./data/schema",
-                excel_dir=sys.argv[3] if len(sys.argv) > 3 else "./data/dataset/dev_excel",
-                bge_dir=sys.argv[4] if len(sys.argv) > 4 else "./bge_models"
+        # 默認參數
+        if args is None:
+            parser = argparse.Namespace(
+                backbone='qwen2.57b',
+                doc_dir='../offline_data_ingestion_and_query_interface/data/schema',
+                excel_dir='../offline_data_ingestion_and_query_interface/dataset/dev_excel',
+                bge_dir='./bge_models',
+                max_iter=5,
+                table_id='auto',
+                question='',
+                tables=None,
+                embedding_policy='build_if_missing'
             )
-        else:
-            # 使用已有的offline数据路径
-            args = Args("qwen2.57b", "../offline_data_ingestion_and_query_interface/data/schema", "../offline_data_ingestion_and_query_interface/dataset/dev_excel", "./bge_models")
-        
-        print(f"正在初始化 TableRAG (使用模型: {args.backbone})...")
+            args = parser
+
         agent = TableRAG(args)
-        print("TableRAG 初始化完成!")
-        print()
+
+        # 解析手動指定的多表（可多次 --tables 或逗號分隔）
+        def _parse_tables(tables_opt):
+            if not tables_opt:
+                return []
+            collected = []
+            for item in tables_opt:
+                if not item:
+                    continue
+                parts = [p.strip() for p in str(item).split(',') if str(p).strip()]
+                collected.extend(parts)
+            # 去重並保留順序
+            seen = set()
+            result = []
+            for t in collected:
+                key = t.lower()
+                if key not in seen:
+                    seen.add(key)
+                    result.append(t)
+            return result
+
+        manual_tables = _parse_tables(getattr(args, 'tables', None))
+        current_table_id = manual_tables if manual_tables else (getattr(args, 'table_id', 'auto') or 'auto')
 
     except Exception as e:
         print(f"初始化失敗: {e}")
         print("請檢查配置文件和數據路徑是否正確")
+        return
+
+    # 一次性模式：命令行同時提供 --question
+    if getattr(args, 'question', None):
+        try:
+            case = create_sample_case(args.question, current_table_id if current_table_id else 'auto')
+            if getattr(args, 'verbose', False):
+                print("[TableRAG] 問題:", args.question)
+                print("[TableRAG] 選表模式:", "手動多表" if isinstance(current_table_id, list) and current_table_id else ("手動單表" if (isinstance(current_table_id, str) and current_table_id not in (None, '', 'auto')) else "自動選表"))
+                print("[TableRAG] 當前table_id:", current_table_id)
+                print("[TableRAG] 開始推理...")
+            answer, _ = agent._run(case, backbone=args.backbone)
+            if getattr(args, 'verbose', False):
+                print("[TableRAG] 結果:")
+            print(answer or "")
+        except Exception as e:
+            print(f"處理問題時發生錯誤: {e}")
         return
 
     while True:
@@ -88,54 +96,16 @@ def interactive_chat():
                 print("感謝使用 TableRAG，再見!")
                 break
             
-            # 檢查幫助命令
-            if user_input.lower() in ['help', 'h']:
-                print_help()
-                continue
-            
-            # 檢查表格列表命令
-            if user_input.lower() in ['tables', 'table', 't']:
-                print_available_tables(agent)
-                continue
-            
             # 檢查空輸入
             if not user_input:
-                print("請輸入有效的問題")
                 continue
             
-            print(f"\n正在處理您的問題: {user_input}")
-            print("請稍候...")
-            
-            # 創建案例並運行TableRAG（使用智能表格選擇）
-            case = create_sample_case(user_input, "auto")
+            # 創建案例並運行TableRAG（支持auto/手動指定，手動可多表）
+            case = create_sample_case(user_input, current_table_id)
             answer, messages = agent._run(case, backbone=args.backbone)
             
-            # 顯示結果
-            print("\n" + "="*60)
-            print("查詢結果:")
-            print("="*60)
-            
-            if answer:
-                print(f"答案: {answer}")
-            else:
-                print("無法找到答案")
-                print("請嘗試重新表述您的問題")
-            
-            # 顯示推理過程（可選）
-            show_details = input("\n是否顯示詳細推理過程? (y/n): ").strip().lower()
-            if show_details in ['y', 'yes']:
-                print("\n推理過程:")
-                print("-" * 40)
-                for i, msg in enumerate(messages):
-                    if isinstance(msg, dict):
-                        role = msg.get('role', 'unknown')
-                        content = msg.get('content', '')
-                        if content:
-                            print(f"步驟 {i+1} ({role}): {content[:200]}...")
-                    else:
-                        print(f"步驟 {i+1}: {str(msg)[:200]}...")
-            
-            print("\n" + "="*60)
+            # 僅輸出答案本身（若無則輸出空行）
+            print(answer or "")
             
         except KeyboardInterrupt:
             print("\n\n用戶中斷，再見!")
@@ -217,15 +187,29 @@ def main():
     """
     主函數
     """
-    parser = argparse.ArgumentParser(description="TableRAG 交互式聊天界面")
-    parser.add_argument('--backbone', type=str, default='gpt-4o', 
-                       help='選擇LLM模型 (gpt-4o, qwen2.57b, v3)')
+    parser = argparse.ArgumentParser(description="TableRAG 交互式聊天（精簡）")
+    parser.add_argument('--backbone', type=str, default='qwen2.57b', 
+                       help='選擇LLM模型 (gpt-4o, qwen2.57b, qwen3_8b, v3)')
     parser.add_argument('--doc_dir', type=str, default='../offline_data_ingestion_and_query_interface/data/schema',
                        help='文檔目錄路徑')
     parser.add_argument('--excel_dir', type=str, default='../offline_data_ingestion_and_query_interface/dataset/dev_excel',
                        help='Excel文件目錄路徑')
     parser.add_argument('--bge_dir', type=str, default='./bge_models',
                        help='BGE模型目錄路徑')
+    parser.add_argument('--table_id', type=str, default='auto',
+                       help='指定表ID；不指定或auto為自動選表')
+    parser.add_argument('--max_iter', type=int, default=5,
+                       help='最大推理步數，需<=5')
+    # 一次性模式的問題輸入
+    parser.add_argument('--question', type=str, default='',
+                       help='一次性模式：直接輸入問題，程序將輸出答案後退出')
+    # 多表手動指定，可使用多次 --tables 或逗號分隔
+    parser.add_argument('--tables', action='append', default=None,
+                       help='一次性或交互模式：手動指定表名（可多次指定或逗號分隔），優先於 --table_id')
+    # 調試輸出
+    parser.add_argument('--verbose', action='store_true', default=False,
+                        help='非交互一次性模式下，輸出關鍵過程信息便於調試')
+    parser.add_argument('--embedding_policy', type=str, default='build_if_missing', choices=['load_only','build_if_missing','rebuild'])
     
     args = parser.parse_args()
     
@@ -237,11 +221,8 @@ def main():
             print("請確保數據和模型文件已正確放置")
             return
     
-    # 初始化日誌
-    init_logger('interactive_chat', logging.INFO, 'interactive_chat.log')
-    
     # 開始交互式聊天
-    interactive_chat()
+    interactive_chat(args)
 
 if __name__ == "__main__":
     main()

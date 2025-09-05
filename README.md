@@ -1,296 +1,285 @@
-# TableRAG: 
+# TableRAG API 服務與 CLI（本地開發）
 
+本文件提供 TableRAG 的快速開始、常見操作、與完整 API 參考。
 
+## 快速開始（Quick Start）
 
-**核心特點：**
-- **語義檢索**: 使用BGE-M3模型進行智能文檔檢索
-- **SQL生成**: 自然語言轉SQL查詢
-- **多跳推理**: 支持複雜問題的逐步推理
-- **混合檢索**: 結合文本檢索和SQL執行
-- **交互式使用**: 支持命令行和Web界面
-
-## 系統架構
-
-TableRAG包含兩個主要階段：
-
-### 1. **離線階段** (Offline Phase)
-- 數據庫建構和數據攝取
-- Schema生成和存儲
-- 向量索引建立
-
-### 2. **線上階段** (Online Phase)  
-- 語義檢索和重排序
-- SQL生成和執行
-- 多跳推理和答案生成
-
----
-
-## 快速部署指南
-
-### 前置要求
+1. 安裝依賴
 
 ```bash
-# 1. 創建Python環境
-conda create -n tablerag python=3.10
-conda activate tablerag
-
-# 2. 安裝依賴
-cd TableRAG
 pip install -r requirements.txt
-
-# 3. 下載BGE模型 (可選，首次運行會自動下載)
-# BGE-M3: 用於語義檢索
-# BGE-Reranker-V2-M3: 用於重排序
 ```
 
-### 步驟1: 設置MySQL數據庫
+1. 啟動服務（PowerShell）
+
+```powershell
+uvicorn apiserve.main:app --host 127.0.0.1 --port 8000 --reload
+```
+
+1. 健康檢查：瀏覽器或 CLI 請求 `GET /health`
+
+1. 打開互動式文件：前往 `http://127.0.0.1:8000/docs`
+
+## 常見操作（Recipes）
+
+- 清理（依 Excel 名稱移除對應表/Schema/Excel）：
 
 ```bash
-# 1. 下載並安裝MySQL 8.0.24
-# 訪問: https://downloads.mysql.com/archives/community/
-
-# 2. 創建數據庫
-mysql -u root -p
-CREATE DATABASE TableRAG;
+python apiserve/cli/cleanup.py --target 銷售統計2023.xlsx --yes --wait
 ```
 
-### 步驟2: 離線數據攝取
+- 從目錄導入資料：
 
 ```bash
-# 1. 配置數據庫連接
- offline_data_ingestion_and_query_interface/config/database_config.json
-
-{
-    "host": "localhost",
-    "port": 3306,
-    "user": "your_username",
-    "password": "your_password",
-    "database": "TableRAG"
-}
-
-# 2. 準備數據文件
-# 準備表格到指定目錄
-offline_data_ingestion_and_query_interface/dataset/dev_excel/
-
-# 3. 執行數據攝取
-cd offline_data_ingestion_and_query_interface/src/
-python data_persistent.py
+python apiserve/cli/import_data.py --wait
 ```
 
-**離線階段功能：**
-- 自動推斷數據類型
-- 生成JSON Schema文件
-- 將Excel數據導入MySQL
-- 創建向量索引
-
-### 步驟3: 啟動SQL查詢服務
+- 建立/重建向量索引（預設 policy=rebuild，save_path=online_inference/embedding.pkl）：
 
 ```bash
-# 1. 配置LLM API
-vim offline_data_ingestion_and_query_interface/src/handle_requests.py
-
-# 設置您的LLM API配置
-model_request_config = {
-    "url": "your_llm_api_url",
-    "api_key": "your_api_key",
-    "model": "your_model_name"
-}
-
-# 2. 啟動服務
-cd ooffline_data_ingestion_and_query_interface/src
-python interface.py
-# 服務將在 http://localhost:5000 啟動
+python apiserve/cli/embeddings.py --doc_dir offline_data_ingestion_and_query_interface/data/schema --excel_dir offline_data_ingestion_and_query_interface/dataset/dev_excel --bge_dir online_inference/bge_models --policy rebuild --wait
 ```
 
-### 步驟4: 配置線上推理
+- 上傳並重建（multipart/form-data）：
 
 ```bash
-# 1. 配置LLM和SQL服務
-vim online_inference/config.py
-
-# 設置LLM配置
-v3_config = {
-    "url": "your_llm_api_url",
-    "model": "your_model_name", 
-    "api_key": "your_api_key"
-}
-
-# 設置SQL服務URL
-sql_service_url = 'http://localhost:5000/get_tablerag_response'
-
-# 2. 準備數據目錄
-mkdir -p online_inference/data/schema
-mkdir -p online_inference/data/dataset/dev_excel
-mkdir -p online_inference/bge_models
-
-# 3. 複製必要文件
-cp offline_data_ingestion_and_query_interface/data/schema/* online_inference/data/schema/
-cp offline_data_ingestion_and_query_interface/dataset/hybridqa/dev_excel/* online_inference/data/dataset/dev_excel/
+curl -X POST http://127.0.0.1:8000/data/upload_and_rebuild \
+  -F "excel_dir=offline_data_ingestion_and_query_interface/dataset/dev_excel" \
+  -F "policy=rebuild" \
+  -F "file=@your.xlsx;type=application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 ```
 
----
-
-## 使用方式
-
-### 方式1: 批量實驗 (推薦用於評估)
+- 多檔上傳（僅導入）：
 
 ```bash
-cd online_inference
-
-# 運行批量實驗（支持智能表格選擇）
-python main.py \
-    --backbone gpt-4o \
-    --data_file_path ./data/sample_auto_queries.json \
-    --doc_dir ./data/schema \
-    --excel_dir ./data/dataset/dev_excel \
-    --bge_dir ./bge_models \
-    --save_file_path ./results/output.json \
-    --max_iter 5 \
-    --rerun False
+curl -X POST http://127.0.0.1:8000/data/upload_many \
+  -F "excel_dir=offline_data_ingestion_and_query_interface/dataset/dev_excel" \
+  -F "files=@a.xlsx;type=application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" \
+  -F "files=@b.xlsx;type=application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 ```
 
-**智能表格選擇功能：**
-- **自動表格選擇**: 設置 `"table_id": "auto"` 或省略 `table_id` 字段
-- **語義匹配**: 根據問題內容自動選擇最相關的表格
-- **多表格支持**: 支持跨表格的聯合查詢
-- **向後兼容**: 仍支持手動指定 `table_id`
-
-### 方式2: 命令行交互 (用於測試)
+- 多檔上傳並重建：
 
 ```bash
-cd online_inference
-
-# 啟動命令行交互界面
-python interactive_chat.py \
-    --backbone gpt-4o \
-    --doc_dir ./data/schema \
-    --excel_dir ./data/dataset/dev_excel \
-    --bge_dir ./bge_models
+curl -X POST http://127.0.0.1:8000/data/upload_and_rebuild_many \
+  -F "excel_dir=offline_data_ingestion_and_query_interface/dataset/dev_excel" \
+  -F "policy=rebuild" \
+  -F "files=@a.xlsx;type=application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" \
+  -F "files=@b.xlsx;type=application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 ```
 
-**交互功能：**
-- **智能表格選擇** - 無需指定表格名稱
-- **自然語言問答** - 直接問問題即可
-- **查看推理過程** - 詳細的分析步驟
-- **詳細日誌記錄** - 完整的執行日誌
-- **內置幫助系統** - 輸入 `help` 查看幫助
-- **表格列表** - 輸入 `tables` 查看可用表格
+- 以 Python 腳本批次上傳：
 
----
-
-## 配置詳解
-
-### LLM模型配置
-
-```python
-# online_inference/config.py
-
-# OpenAI GPT-4o
-gpt4o_config = {
-    "url": "https://api.openai.com/v1",
-    "model": "gpt-4o",
-    "api_key": "your_openai_key"
-}
-
-# 通義千問2.5 7B (本地)
-qwen2_57b_config = {
-    "url": "http://localhost:11434/v1/chat/completions",
-    "model": "qwen2.5:7b",
-    "api_key": ""
-}
-
-# DeepSeek V3
-v3_config = {
-    "url": "your_deepseek_url",
-    "model": "deepseek_chat",
-    "api_key": "your_deepseek_key"
-}
+```bash
+python apiserve/cli/multi_upload.py --files offline_data_ingestion_and_query_interface/dataset/dev_excel/a.xlsx offline_data_ingestion_and_query_interface/dataset/dev_excel/b.xlsx --rebuild
 ```
 
-### 數據格式
+- 提問（非串流）：
 
-**測試問題文件格式 (JSONL):**
-
-**傳統方式（需要指定表格）：**
-```json
-{"question": "這個表格中有多少行數據？", "table_id": "sample_table"}
-{"question": "找出銷售額最高的產品", "table_id": "sales_table"}
-{"question": "計算平均價格", "table_id": "product_table"}
+```bash
+python apiserve/cli/chat.py --question "这张表说明了什么内容？" --table_id 鈺創科技財報資料.xlsx                                
 ```
 
-**智能表格選擇方式（推薦）：**
-```json
-{"question": "銷售額最高的產品是什麼？", "table_id": "auto"}
-{"question": "計算平均工資", "table_id": "auto"}
-{"question": "找出年齡大於30歲的員工"}
-{"question": "按銷售額排序顯示前5名"}
+- 列出當前表：
+
+```bash
+python apiserve/cli/tables.py
 ```
 
-**Schema文件格式:**
-```json
-{
-    "table_name": "sample_table",
-    "columns": [
-        ["id", "INT", "sample values:['1', '2', '3']"],
-        ["name", "VARCHAR(255)", "sample values:['John', 'Jane', 'Bob']"],
-        ["price", "FLOAT", "sample values:['100.0', '200.0', '150.0']"]
-    ]
-}
+## 路由概覽（Endpoints）
+
+- POST `/cleanup`：按 Excel 名稱刪除對應表、Schema、Excel（包含 DROP TABLE）
+- GET `/cleanup/tasks/{task_id}`：查詢清理任務狀態
+- POST `/data/import`：導入 Excel 至資料庫並產生 Schema
+- POST `/data/upload`：上傳單一 Excel，立即觸發導入（掃描 excel_dir 根目錄）
+- POST `/data/upload_many`：上傳多個 Excel，立即觸發導入（掃描 excel_dir 根目錄）
+- POST `/data/upload_and_rebuild`：上傳 Excel → 導入 → 觸發向量重建
+- POST `/data/upload_and_rebuild_many`：上傳多個 Excel → 導入 → 觸發向量重建
+- GET `/data/tasks/{task_id}`：查詢導入任務狀態
+- POST `/embeddings/build`：建立/載入向量索引
+- GET `/embeddings/tasks/{task_id}`：查詢嵌入任務狀態
+- GET `/tables`：列出 Schema 目錄中的表名
+- POST `/chat/ask`：一次性問答（非串流）
+
+## 上傳方式總覽
+
+- 單檔上傳並觸發導入：`POST /data/upload`
+  - 表單：`file`（Excel 檔）、可選 `excel_dir`
+  - 行為：儲存至 `excel_dir` → 觸發目錄導入
+
+- 多檔上傳並觸發導入：`POST /data/upload_many`
+  - 表單：`files`（多個 Excel 檔）、可選 `excel_dir`
+  - 行為：儲存多檔 → 觸發目錄導入
+
+- 單檔上傳並重建向量：`POST /data/upload_and_rebuild`
+  - 表單：`file`、可選 `excel_dir`、`policy`、`save_path`、`doc_dir`、`bge_dir`
+  - 行為：儲存 → 導入 → 建立/重建向量索引
+
+- 多檔上傳並重建向量：`POST /data/upload_and_rebuild_many`
+  - 表單：`files`、可選 `excel_dir`、`policy`、`save_path`、`doc_dir`、`bge_dir`
+  - 行為：儲存多檔 → 導入 → 建立/重建向量索引
+
+## 組態（Config）
+
+- 全域組態檔：`apiserve/config.json`（可選）
+- 預設值（源自 `apiserve/deps.py`）：
+  - **doc_dir**: `offline_data_ingestion_and_query_interface/data/schema`
+  - **excel_dir**: `offline_data_ingestion_and_query_interface/dataset/dev_excel`
+  - **bge_dir**: `online_inference/bge_models`
+  - **embedding_save_path**: `online_inference/embedding.pkl`
+  - **embedding_policy**: `build_if_missing`
+  - **backbone**: `qwen2.57b`
+
+說明：請求中的欄位若為 `null`/未提供，則採用全域組態合併後的預設值；若提供非空值，則以請求覆寫。
+
+## 任務查詢約定（Tasks）
+
+- 以記憶體佇列非同步執行（`apiserve/tasks.py`）。建立任務會回傳 `task_id` 與 `status=queued`。
+- 透過對應模組的 `GET /.../tasks/{task_id}` 查詢任務狀態：`queued`、`running`、`succeeded`、`failed`，以及可選的 `result`/`error`。
+
+## API 參考
+
+### 健康檢查
+
+- GET `/health`
+  - 回應：`{"status": "ok", "version": "0.1.0"}`
+
+### 清理 Cleanup
+
+- POST `/cleanup`
+  - Request JSON：
+    - **targets**: string[]（必填）Excel 檔名列表（例如 `銷售統計2023.xlsx`），據此刪除對應表/Schema/Excel
+    - **yes**: boolean（預設 true）確認執行
+    - **dry_run**: boolean（預設 false）僅演練
+    - **remove_excel**: boolean（保留欄位，預設 true）
+  - 回應：`{"task_id": string, "status": "queued"}`
+
+- GET `/cleanup/tasks/{task_id}`
+  - 回應：任務狀態紀錄，含 `status`、`result`（如 `{"exit_code": 0}`）或 `error`
+
+### 資料導入與上傳 Data
+
+- POST `/data/import`
+  - Request JSON：
+    - **excel_dir**: string（可選）Excel 根目錄；未提供則使用全域組態
+  - 行為：背景呼叫離線導入邏輯，掃描目錄並入庫
+  - 回應：`{"task_id": string, "status": "queued"}`
+
+- POST `/data/upload`
+  - multipart/form-data 表單：
+    - **file**: 單一 Excel（.xlsx/.xls）
+    - **excel_dir**: string（可選）保存根目錄；缺省時使用全域組態
+  - 行為：儲存至 `excel_dir`，隨後觸發目錄導入
+  - 回應：`{"task_id": string, "status": "queued", "saved_path": string}`
+
+- POST `/data/upload_many`
+  - multipart/form-data 表單：
+    - **files**: 多個 Excel 檔
+    - **excel_dir**: string（可選）
+  - 回應：`{"task_id": string, "status": "queued", "saved_paths": string[]}`
+
+- POST `/data/upload_and_rebuild`
+  - multipart/form-data 表單：
+    - **file**: 單一 Excel 檔
+    - **excel_dir**: string（可選）
+    - **policy**: string（可選）嵌入策略：`rebuild` | `build_if_missing` | `load_only`（預設 `rebuild`）
+    - **save_path**: string（可選）嵌入保存路徑，預設 `online_inference/embedding.pkl`
+    - **doc_dir**: string（可選）Schema 目錄
+    - **bge_dir**: string（可選）模型目錄
+  - 行為：儲存 → 導入 → 建立/重建嵌入
+  - 回應：`{"task_id": string, "status": "queued", "saved_path": string}`
+
+- POST `/data/upload_and_rebuild_many`
+  - multipart/form-data 表單：同上，但支援多個 **files**
+  - 回應：`{"task_id": string, "status": "queued", "saved_paths": string[]}`
+
+- GET `/data/tasks/{task_id}`
+  - 回應：任務狀態；成功時 `result` 可能含 `save_path`、`policy`、`excel_dir`、`doc_dir` 等。
+
+### 向量構建 Embeddings
+
+- POST `/embeddings/build`
+  - Request JSON：
+    - **doc_dir**: string（可選）
+    - **excel_dir**: string（可選）
+    - **bge_dir**: string（可選）
+    - **save_path**: string（可選，預設 `online_inference/embedding.pkl`）
+    - **policy**: string（可選，預設 `rebuild`）
+  - 行為：呼叫 `online_inference/embed_index.py` 產生/重建索引
+  - 回應：`{"task_id": string, "status": "queued"}`
+
+- GET `/embeddings/tasks/{task_id}`
+  - 回應：任務狀態；成功時 `result` 含 `save_path`、`policy`
+
+### 表列表 Tables
+
+- GET `/tables`
+  - Query 參數：
+    - **doc_dir**: string（可選）
+    - **excel_dir**: string（可選）
+    - **include_meta**: boolean（預設 false）是否回傳中繼資料
+  - 回應：
+    - 基本：`{"tables": string[], "count": number}`
+    - `include_meta=true` 時：新增 `meta`（與排序對齊），元素含 `table`、`table_name`、`original_filename`、`source_file_hash`
+
+### 問答 Chat
+
+- POST `/chat/ask`
+  - Request JSON：
+    - **question**: string（必填）
+    - **table_id**: string（可選，預設 `auto`）
+    - **tables**: string[]（可選）
+    - **doc_dir**: string（可選）
+    - **excel_dir**: string（可選）
+    - **bge_dir**: string（可選）
+    - **embedding_policy**: string（可選）
+    - **backbone**: string（可選，預設 `qwen2.57b`）
+  - 回應：`{"answer": string}`；失敗回傳 500 與 `detail`
+
+## 常用參數總覽
+
+- **excel_dir**（string，可選）
+  - 適用：所有上傳/導入相關端點
+  - 用途：指定 Excel 保存或掃描的根目錄
+
+- **doc_dir**（string，可選）
+  - 適用：向量構建、重建相關（`/embeddings/build`、`/data/upload_and_rebuild*`）
+  - 用途：Schema 定義目錄，供索引與表名解析
+
+- **bge_dir**（string，可選）
+  - 適用：向量構建、重建相關
+  - 用途：BGE 模型檔案所在目錄
+
+- **policy**（string，可選，預設 `rebuild`）
+  - 值：`rebuild` | `build_if_missing` | `load_only`
+  - 適用：向量構建、重建相關
+
+- **save_path**（string，可選，預設 `online_inference/embedding.pkl`）
+  - 適用：向量構建、重建相關
+  - 用途：嵌入索引的輸出檔
+
+- **table_id**（string，可選，預設 `auto`）
+  - 適用：`/chat/ask`
+  - 用途：指定查詢的表；`auto` 由系統自動挑選
+
+- **tables**（string[]，可選）
+  - 適用：`/chat/ask`
+  - 用途：限制候選表集合
+
+- **embedding_policy**（string，可選）
+  - 適用：`/chat/ask`
+  - 用途：問答時的嵌入策略（沿用向量構建語意）
+
+- **backbone**（string，可選，預設 `qwen2.57b`）
+  - 適用：`/chat/ask`
+  - 用途：回答生成所用的模型
+
+## 運行與偵錯
+
+- 啟動（開發模式）：
+
+```powershell
+uvicorn apiserve.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
----
-
-## 支持的問答類型
-
-### 1. 基礎數據查詢
-```
-Q: "這個表格中有多少行數據？"
-A: "根據查詢結果，該表格共有1,234行數據。"
-```
-
-### 2. 統計分析
-```
-Q: "計算平均銷售額"
-A: "平均銷售額為 $15,678.90"
-```
-
-### 3. 條件篩選
-```
-Q: "找出銷售額大於10000的產品"
-A: "符合條件的產品有：[產品列表]"
-```
-
-### 4. 排序查詢
-```
-Q: "按銷售額降序排列前5名"
-A: "銷售額前5名：1. 產品A: $50,000, 2. 產品B: $45,000..."
-```
-
-### 5. 複雜推理
-```
-Q: "哪個部門的平均工資最高？"
-A: "通過分析各部門數據，技術部的平均工資最高，為$8,500/月。"
-```
-
----
-
-## 技術架構詳解
-
-### 語義檢索流程
-1. **文本嵌入**: 使用BGE-M3將問題轉換為向量
-2. **向量檢索**: 在FAISS索引中搜索相似文檔
-3. **重排序**: 使用BGE-Reranker精確排序
-4. **文檔融合**: 整合相關文檔內容
-
-### SQL生成流程
-1. **Schema檢索**: 找到相關表格結構
-2. **NL2SQL**: 自然語言轉SQL查詢
-3. **SQL執行**: 在MySQL中執行查詢
-4. **結果整合**: 格式化查詢結果
-
-### 多跳推理流程
-1. **問題分解**: 將複雜問題分解為子問題
-2. **迭代推理**: 最多5次迭代推理
-3. **工具調用**: 使用solve_subquery工具
-4. **答案生成**: 整合所有子問題答案
-
+- 互動式文件：前往 `http://127.0.0.1:8000/docs`

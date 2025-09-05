@@ -1,5 +1,5 @@
 from flask import Flask, request, jsonify
-from service import process_tablerag_request
+from .service import process_tablerag_request
 
 app = Flask(__name__)
 

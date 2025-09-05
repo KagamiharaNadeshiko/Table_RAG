@@ -2,7 +2,10 @@ import re
 import json
 import hashlib
 import os
-from sql_alchemy_helper import SQL_Alchemy_Helper
+try:
+    from .sql_alchemy_helper import SQL_Alchemy_Helper
+except ImportError:
+    from sql_alchemy_helper import SQL_Alchemy_Helper
 
 # 获取项目根目录路径
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

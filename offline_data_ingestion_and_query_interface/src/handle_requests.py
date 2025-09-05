@@ -96,6 +96,7 @@ def get_llm_response(
     model_headers = model_config["headers"]
     model_name = model_config["model"]
     temperature = model_config.get("temperature", 0.01)
+    no_think = model_config.get("no_think", False)
 
     payload={
         "model": model_name,
@@ -105,6 +106,10 @@ def get_llm_response(
         ],
         "temperature": temperature
     }
+    
+    # 添加no_think参数到payload中
+    if no_think:
+        payload["no_think"] = True
 
     resp_content = call_llm_api(
         endpoint=model_endpoint,
