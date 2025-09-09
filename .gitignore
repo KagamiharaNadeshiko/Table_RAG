@@ -1,6 +1,0 @@
-online_inference/bge_models/
-online_inference/embedding.pkl
-**/__pycache__/
-**/.ipynb_checkpoints/
-.idea/
-*.log
