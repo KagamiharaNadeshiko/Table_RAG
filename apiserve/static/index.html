@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="zh-Hans">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>TableRAG 控制台</title>
+    <link rel="stylesheet" href="/styles.css" />
+</head>
+
+<body>
+    <header>
+        <h1>TableRAG 控制台</h1>
+        <nav class="tabs">
+            <button data-tab="upload" class="active">上传</button>
+            <button data-tab="files">文件</button>
+            <button data-tab="chat">对话</button>
+        </nav>
+    </header>
+
+    <main>
+        <section id="tab-upload" class="tab visible">
+            <h2>上传 Excel</h2>
+            <form id="single-upload-form">
+                <label>选择文件
+            <input type="file" id="single-file" accept=".xlsx,.xls" />
+          </label>
+                <label>服务器 Excel 根目录（可选）
+            <input type="text" id="single-excel-dir" placeholder="offline_data_ingestion_and_query_interface/dataset/dev_excel" />
+          </label>
+                <button type="submit">上传并导入</button>
+            </form>
+            <div class="progress" id="single-upload-progress"></div>
+
+            <hr />
+
+            <h3>批量上传</h3>
+            <form id="multi-upload-form">
+                <label>选择多个文件
+            <input type="file" id="multi-files" accept=".xlsx,.xls" multiple />
+          </label>
+                <label>服务器 Excel 根目录（可选）
+            <input type="text" id="multi-excel-dir" placeholder="offline_data_ingestion_and_query_interface/dataset/dev_excel" />
+          </label>
+                <button type="submit">上传并导入</button>
+            </form>
+            <div class="progress" id="multi-upload-progress"></div>
+        </section>
+
+        <section id="tab-files" class="tab">
+            <h2>文件与表格</h2>
+            <div class="row">
+                <label>Schema 目录（可选）<input type="text" id="tables-doc-dir" placeholder="offline_data_ingestion_and_query_interface/data/schema" /></label>
+                <button id="refresh-tables">刷新表格</button>
+            </div>
+            <div id="tables-meta"></div>
+            <h3>清理（按原始 Excel 文件名）</h3>
+            <div class="row">
+                <input type="text" id="cleanup-target" placeholder="example.xlsx" />
+                <button id="do-cleanup">执行清理</button>
+            </div>
+            <div class="progress" id="cleanup-progress"></div>
+        </section>
+
+        <section id="tab-chat" class="tab">
+            <h2>对话</h2>
+            <div class="row">
+                <label>问题<input type="text" id="chat-question" placeholder="请根据表格回答..." /></label>
+            </div>
+            <div class="row">
+                <label>可选：指定表格ID<input type="text" id="chat-table-id" placeholder="auto 或具体表名" /></label>
+                <label>可选：Backbone<input type="text" id="chat-backbone" placeholder="qwen2.57b" /></label>
+                <label>可选：向量策略<input type="text" id="chat-policy" placeholder="rebuild | build_if_missing | load_only" /></label>
+            </div>
+            <div class="row">
+                <label>Schema 目录（可选）<input type="text" id="chat-doc-dir" placeholder="offline_data_ingestion_and_query_interface/data/schema" /></label>
+                <label>Excel 目录（可选）<input type="text" id="chat-excel-dir" placeholder="offline_data_ingestion_and_query_interface/dataset/dev_excel" /></label>
+                <label>BGE 目录（可选）<input type="text" id="chat-bge-dir" placeholder="online_inference/bge_models" /></label>
+            </div>
+            <div class="row">
+                <button id="send-question">发送</button>
+            </div>
+            <pre id="chat-answer"></pre>
+        </section>
+    </main>
+
+    <footer>
+        <a href="/health" target="_blank">健康检查</a>
+    </footer>
+
+    <script src="/app.js"></script>
+</body>
+
+</html>
