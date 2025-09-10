@@ -4,9 +4,6 @@
 
 ### 環境需求
 - **Python**: 3.11
-- **MySQL**: 可存取的實例（本機或遠端）
-- **作業系統**: Windows / macOS / Linux
-
 ### 1) 建立並啟用 Conda 環境
 ```powershell
 # 於專案根目錄
@@ -14,7 +11,7 @@ conda create -n tablerag python=3.11 -y
 conda activate tablerag
 ```
 
-### 2) 安裝相依套件
+### 2) 安裝套件
 ```powershell
 pip install -U pip setuptools wheel
 pip install -r requirements.txt
