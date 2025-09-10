@@ -113,7 +113,6 @@ huggingface-cli download BAAI/bge-m3 --local-dir online_inference/bge_models/bge
 huggingface-cli download BAAI/bge-reranker-v2-m3 --local-dir online_inference/bge_models/bge-reranker-v2-m3 --local-dir-use-symlinks False
 ```
 
-若網路環境無法直連 Hugging Face，可先離線下載後手動拷貝到 `online_inference/bge_models/` 對應資料夾。
 
 ### 停止服務
 於執行視窗按下 `Ctrl + C` 可優雅停止所有服務。
