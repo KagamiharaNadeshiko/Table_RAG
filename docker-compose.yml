@@ -1,0 +1,57 @@
+version: "3.9"
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: tablerag_app
+    depends_on:
+      - mysql
+      - ollama
+    environment:
+      - PYTHONPATH=/app
+      - OLLAMA_BASE_URL=http://ollama:11434
+    volumes:
+      - ./offline_data_ingestion_and_query_interface/config:/app/offline_data_ingestion_and_query_interface/config:ro
+      - ./offline_data_ingestion_and_query_interface/dataset:/app/offline_data_ingestion_and_query_interface/dataset
+      - ./offline_data_ingestion_and_query_interface/data/schema:/app/offline_data_ingestion_and_query_interface/data/schema
+      - ./online_inference/bge_models:/app/online_inference/bge_models
+      - ./online_inference:/app/online_inference
+      - ./logs:/app/logs
+    ports:
+      - "8000:8000"
+      - "5000:5000"
+    restart: unless-stopped
+
+  mysql:
+    image: mysql:8.4
+    container_name: tablerag_mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: your_password
+      MYSQL_DATABASE: mysql
+    ports:
+      - "3307:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    restart: unless-stopped
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: tablerag_ollama
+    ports:
+      - "11435:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      - OLLAMA_NUM_GPU=1
+    gpus: all
+    restart: unless-stopped
+
+volumes:
+  mysql_data:
+  ollama_data:
+
+

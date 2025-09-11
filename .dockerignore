@@ -1,0 +1,38 @@
+# VCS
+.git
+.gitignore
+
+# Python cache
+**/__pycache__/**
+**/*.pyc
+**/*.pyo
+**/*.pyd
+**/.ipynb_checkpoints/**
+
+# Virtual envs
+.venv
+venv
+ENV
+
+# Logs and artifacts
+**/*.log
+logs/**
+app.log
+online_inference/app.log
+offline_data_ingestion_and_query_interface/src/app.log
+
+# Large datasets/models
+online_inference/bge_models/**
+offline_data_ingestion_and_query_interface/dataset/**
+offline_data_ingestion_and_query_interface/data/schema/**
+
+# Local config that shouldn't go to image context
+**/.env
+.env*
+
+# Node
+node_modules/**
+
+# OS cruft
+.DS_Store
+Thumbs.db

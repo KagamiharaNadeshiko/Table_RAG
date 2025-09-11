@@ -1,3 +1,10 @@
+import os
+
+# Allow configuring the OpenAI-compatible base URL via environment variable, defaulting to the
+# dedicated LLM container service name "ollama" exposed at port 11434 in docker-compose.
+# Example: export OLLAMA_BASE_URL=http://ollama:11434
+_OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://ollama:11434")
+
 v3_config = {
     "url": "url for deepseek_v3",
     "model": "deepseek_chat",
@@ -5,13 +12,14 @@ v3_config = {
 }
 
 qwen2_57b_config = {
-    "url": "http://localhost:11434/v1/chat/completions",
+    # Provide base URL; chat_utils will normalize to /v1/chat/completions when needed
+    "url": _OLLAMA_BASE_URL,
     "model": "qwen2.5:7b",
     "api_key": ""
 }
 
 qwen3_8b_config = {
-    "url": "http://localhost:11434/v1/chat/completions",
+    "url": _OLLAMA_BASE_URL,
     "model": "qwen3:8b",
     "api_key": "",
     "no_think": True

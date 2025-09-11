@@ -42,6 +42,10 @@ def extract_sql_statement(resp_content):
     Returns:
         str: 提取的SQL语句。
     """
+    if not isinstance(resp_content, str) or not resp_content:
+        logger.error(f"LLM response content is empty or not a string: {resp_content}")
+        return None
+
     # 使用正则表达式匹配SQL语句
     match = re.search(r'```sql([\s\S]*?)```', resp_content, re.DOTALL)
     if match:
@@ -50,7 +54,7 @@ def extract_sql_statement(resp_content):
         return sql_text
     else:
         logger.error(f"No SQL statement found in the response content. Response content: {resp_content}")
-        return resp_content
+        return None
     
 
 def process_tablerag_request(table_name_list, query):
@@ -109,6 +113,12 @@ def process_tablerag_request(table_name_list, query):
     nl2sql_time_cusumed = nl2sql_end_time - nl2sql_start_time
 
     sql_str = extract_sql_statement(resp_content)
+    if not sql_str:
+        return {
+            'error': 'Failed to extract SQL from LLM response',
+            'query': query,
+            'nl2sql_response': resp_content
+        }
 
     sql_excution_start_time = time.time()
     try:

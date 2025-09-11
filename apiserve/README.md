@@ -1,7 +1,4 @@
 # TableRAG API 介面說明（apiserve）
-
-本文件詳細說明 `apiserve` 模組所提供的 FastAPI 介面、請求參數、執行邏輯與回應格式，並補充全域設定合併規則與背景任務查詢方式。
-
 ---
 
 ### 全域設計與共同概念
@@ -68,6 +65,12 @@
   { "task_id": "<uuid>", "status": "queued" }
   ```
 
+- **任務成功的 `result` 內容**（於任務查詢回傳中）：
+  
+  ```json
+  { "exit_code": 0 }
+  ```
+
 ### GET /cleanup/tasks/{task_id}
 
 - **說明**：查詢清理任務狀態與結果。
@@ -90,6 +93,9 @@
   { "task_id": "<uuid>", "status": "queued" }
   ```
 
+- **任務成功的 `result` 內容**（於任務查詢回傳中）：
+  - 為 `parse_excel_file_and_insert_to_db(excel_dir)` 的回傳值（依實作而定）。
+
 ### GET /data/tasks/{task_id}
 
 - **說明**：查詢匯入任務狀態。
@@ -107,6 +113,9 @@
   { "task_id": "<uuid>", "status": "queued", "saved_path": "<server/path>" }
   ```
 
+- **任務成功的 `result` 內容**（於任務查詢回傳中）：
+  - 為 `parse_excel_file_and_insert_to_db(dest_root)` 的回傳值（依實作而定）。
+
 ### POST /data/upload_many
 
 - **說明**：批次上傳多個 Excel 檔案至伺服器端 `excel_dir`，隨後提交一次匯入任務（針對整個目錄）。
@@ -118,6 +127,9 @@
   ```json
   { "task_id": "<uuid>", "status": "queued", "saved_paths": ["<server/path>", ...] }
   ```
+
+- **任務成功的 `result` 內容**（於任務查詢回傳中）：
+  - 為 `parse_excel_file_and_insert_to_db(dest_root)` 的回傳值（依實作而定）。
 
 ### POST /data/upload_and_rebuild
 
@@ -138,6 +150,17 @@
   { "task_id": "<uuid>", "status": "queued", "saved_path": "<server/path>" }
   ```
 
+- **任務成功的 `result` 內容**（於任務查詢回傳中）：
+  
+  ```json
+  {
+    "save_path": "online_inference/embedding.pkl",
+    "policy": "rebuild|build_if_missing|load_only",
+    "excel_dir": "...",
+    "doc_dir": "..."
+  }
+  ```
+
 ### POST /data/upload_and_rebuild_many
 
 - **說明**：批次上傳多個 Excel，然後在單一背景任務中：先匯入整個 `excel_dir`，再建置/載入向量。
@@ -148,6 +171,17 @@
   
   ```json
   { "task_id": "<uuid>", "status": "queued", "saved_paths": ["<server/path>", ...] }
+  ```
+
+- **任務成功的 `result` 內容**（於任務查詢回傳中）：
+  
+  ```json
+  {
+    "save_path": "online_inference/embedding.pkl",
+    "policy": "rebuild|build_if_missing|load_only",
+    "excel_dir": "...",
+    "doc_dir": "..."
+  }
   ```
 
 ---
@@ -165,6 +199,7 @@
   - `bge_dir: string | null`
   - `save_path: string | null`：若不提供，優先採用合併設定的 `embedding_save_path`，否則預設 `online_inference/embedding.pkl`
   - `policy: string | null`：`rebuild` | `build_if_missing` | `load_only`
+- **預設策略**：當 `policy` 未提供時，使用合併設定中的 `embedding_policy`（預設為 `build_if_missing`）；若全域設定也無此值，則回退為 `rebuild`。
 - **回應**：
   - 提交任務：
   
@@ -330,6 +365,18 @@ curl -X POST http://127.0.0.1:8000/chat/ask \
 
 ```bash
 curl http://127.0.0.1:8000/embeddings/tasks/<task_id>
+```
+
+### 10) 任務狀態查詢（cleanup 範例）
+
+```bash
+curl http://127.0.0.1:8000/cleanup/tasks/<task_id>
+```
+
+### 11) 任務狀態查詢（data 匯入範例）
+
+```bash
+curl http://127.0.0.1:8000/data/tasks/<task_id>
 ```
 
 ---

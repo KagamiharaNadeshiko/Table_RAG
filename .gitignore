@@ -1,0 +1,15 @@
+**/bge_models/
+**/*.log
+*.log
+**/__pycache__/
+__pycache__/
+**/data/
+data/
+**/dataset/
+dataset/
+.idea/
+.vscode/
+**/*.pkl
+*.pkl
+
+

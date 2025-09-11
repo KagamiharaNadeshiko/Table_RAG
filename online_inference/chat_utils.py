@@ -50,8 +50,26 @@ def get_chat_result(
     Get LLM generation result of different API backend, e.g. gpt-4o, ollama.
     """
     # Check if it's Ollama API (no api_key needed)
-    if llm_config.get('url', '').startswith('http://localhost:11434'):
-        service_url = llm_config.get('url', '')
+    # We treat any endpoint that clearly targets an Ollama server or already points to
+    # the full chat-completions path as a direct HTTP endpoint (not OpenAI SDK base_url).
+    url_value = llm_config.get('url', '') or ''
+    is_ollama = ('ollama' in url_value) or (':11434' in url_value)
+    is_full_chat_path = url_value.rstrip('/').endswith('/v1/chat/completions')
+    if is_ollama or is_full_chat_path:
+        # Normalize service URL: if it's just base host, append the chat path
+        base = url_value.rstrip('/')
+        if base.endswith('/v1'):
+            service_url = f"{base}/chat/completions"
+        elif base.endswith(':11434') or base.endswith(':11434/v1') or ('ollama' in base and not is_full_chat_path):
+            # Append missing /v1/chat/completions if needed
+            if base.endswith(':11434'):
+                service_url = f"{base}/v1/chat/completions"
+            elif base.endswith(':11434/v1'):
+                service_url = f"{base}/chat/completions"
+            else:
+                service_url = base if is_full_chat_path else f"{base}/v1/chat/completions"
+        else:
+            service_url = base
         payload = {
             "model": llm_config.get('model', ''),
             "messages": messages,
@@ -87,12 +105,14 @@ def get_chat_result(
                 timeout=300
             )
             response.raise_for_status()
-            return json.loads(response.text)['choices'][0]["message"]
+            data = response.json()
+            return (data.get('choices') or [{}])[0].get('message')
         except Exception as e:
             print(f"Ollama API request failed: {e}")
             raise e
     
     # For other APIs (OpenAI compatible)
+    # For OpenAI-compatible providers, the base_url should be the API base (e.g. https://host/v1)
     client = OpenAI(
         api_key=llm_config.get('api_key', ''),
         base_url=llm_config.get('url', '')

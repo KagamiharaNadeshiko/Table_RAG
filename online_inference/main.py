@@ -55,6 +55,112 @@ class TableRAG() :
         # self.repo_id = self.config.get("repo_id", "")
         self.repo_id = ""  # 初始化repo_id為空字符串
         self.function_lock = threading.Lock()
+        # 提示長度上限（字元數），可由 _args.prompt_max_chars 覆蓋
+        try:
+            self.prompt_max_chars = int(getattr(_args, 'prompt_max_chars', 4000))
+        except Exception:
+            self.prompt_max_chars = 8000
+
+    def _markdown_for_canonical_ids(self, canonical_ids: List[str]) -> str:
+        """
+        根據規範ID列表生成合併的 Markdown 表內容。
+        單表返回其 Markdown，多表以分隔線連接並附上表名。
+        """
+        def _table_markdown_from_cid(canonical_id: str) -> Tuple[str, str]:
+            name = canonical_id
+            cid = self.table_index.get_canonical_id(canonical_id) or canonical_id
+            preferred_excel = self.table_index.get_preferred_excel_file(cid)
+            markdown_text_local = "Can NOT find table content!"
+            if preferred_excel:
+                name = os.path.splitext(preferred_excel)[0]
+                stem, ext = os.path.splitext(preferred_excel)
+                csv_path = os.path.join(self.config.excel_dir, stem + ".csv")
+                if os.path.exists(csv_path):
+                    markdown_text_local = read_plain_csv(csv_path)
+                else:
+                    excel_path = os.path.join(self.config.excel_dir, preferred_excel)
+                    if os.path.exists(excel_path):
+                        markdown_text_local = excel_to_markdown(excel_path)
+            # If still missing, try to locate Excel via schema's original_filename in common locations
+            if markdown_text_local == "Can NOT find table content!":
+                preferred_json = self.table_index.get_preferred_json_file(cid)
+                try:
+                    if preferred_json:
+                        json_path = os.path.join(self.config.doc_dir, preferred_json)
+                        with open(json_path, "r", encoding="utf-8") as f:
+                            data = json.load(f)
+                        original_filename = data.get("original_filename")
+                        if original_filename:
+                            name = os.path.splitext(original_filename)[0]
+                            candidate_paths = []
+                            # 1) excel_dir/original_filename
+                            candidate_paths.append(os.path.join(self.config.excel_dir, original_filename))
+                            # 2) excel_dir/original_filename as CSV
+                            candidate_paths.append(os.path.join(self.config.excel_dir, os.path.splitext(original_filename)[0] + ".csv"))
+                            # 3) offline dataset default location
+                            repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                            offline_default = os.path.join(repo_root, "offline_data_ingestion_and_query_interface", "dataset", "dev_excel", original_filename)
+                            candidate_paths.append(offline_default)
+                            # 4) also try _sheet1.xlsx naming convention
+                            candidate_paths.append(os.path.join(self.config.excel_dir, os.path.splitext(original_filename)[0] + "_sheet1.xlsx"))
+                            for p in candidate_paths:
+                                if not p:
+                                    continue
+                                if p.lower().endswith(".csv") and os.path.exists(p):
+                                    markdown_text_local = read_plain_csv(p)
+                                    break
+                                if p.lower().endswith((".xlsx")) and os.path.exists(p):
+                                    markdown_text_local = excel_to_markdown(p)
+                                    break
+                except Exception:
+                    pass
+            # Fallback: render from JSON schema if excel/csv is not available
+            if markdown_text_local == "Can NOT find table content!":
+                preferred_json = self.table_index.get_preferred_json_file(cid)
+                if preferred_json:
+                    try:
+                        json_path = os.path.join(self.config.doc_dir, preferred_json)
+                        with open(json_path, "r", encoding="utf-8") as f:
+                            data = json.load(f)
+                        name = data.get("table_name", name)
+                        columns = data.get("column_list", [])
+                        # Build a compact markdown preview of schema
+                        header = "| Column | Type | Sample |\n|---|---|---|"
+                        rows = []
+                        for col in columns[:20]:
+                            # expected shape: [name, type, sample values: '...']
+                            col_name = str(col[0]) if len(col) > 0 else ""
+                            col_type = str(col[1]) if len(col) > 1 else ""
+                            sample = str(col[2]) if len(col) > 2 else ""
+                            rows.append(f"| {col_name} | {col_type} | {sample} |")
+                        markdown_text_local = f"### {name}\n\n{header}\n" + ("\n".join(rows) if rows else "(no columns)")
+                    except Exception:
+                        pass
+            return name, markdown_text_local
+
+        canonical_ids = canonical_ids or []
+        if len(canonical_ids) <= 1:
+            target = canonical_ids[0] if canonical_ids else ""
+            _, md = _table_markdown_from_cid(target) if target else ("", "Can NOT find table content!")
+            return md
+
+        sections = []
+        for idx, cid in enumerate(canonical_ids, start=1):
+            name, md = _table_markdown_from_cid(cid)
+            sections.append(f"Table {idx} ({name})\n\n{md}")
+        return "\n\n---\n\n".join(sections)
+
+    def _truncate_text(self, text: str, max_chars: int | None = None) -> str:
+        """將文字截斷到指定字元數，避免提示過長影響性能。"""
+        try:
+            limit = int(max_chars if max_chars is not None else self.prompt_max_chars)
+        except Exception:
+            limit = self.prompt_max_chars
+        if limit <= 0 or not isinstance(text, str):
+            return text
+        if len(text) <= limit:
+            return text
+        return text[: max(0, limit - 100)] + "\n\n...[TRUNCATED]"
 
     def relate_to_table(self, doc_name: str) -> str :
         """
@@ -384,13 +490,19 @@ class TableRAG() :
             text_messages.append(messages)
 
             for sub_query, tool_call_id in zip(sub_queries, tool_call_ids) :
-                # 若用戶手動指定表，為避免引入其他文檔噪音，禁用語義檢索外部文檔
+                # 若用戶手動指定表，使用指定ID對應表的 Markdown 作為 Content 1
                 if manual_mode:
-                    doc_content = ""
+                    try:
+                        doc_content = self._markdown_for_canonical_ids(related_tables)
+                    except Exception:
+                        doc_content = ""
                 else:
                     reranked_docs, _, _ = self.retriever.retrieve(sub_query, 30, 5)
                     unique_retriebed_docs = list(set(reranked_docs))
                     doc_content = "\n".join([r for r in unique_retriebed_docs[:3]])
+
+                # 截斷 Content 1 以控制提示長度
+                doc_content = self._truncate_text(doc_content)
 
                 excel_rag_response_dict = get_excel_rag_response_plain(related_table_name_list, sub_query)
                 excel_rag_response = copy.deepcopy(excel_rag_response_dict)
@@ -446,29 +558,10 @@ class TableRAG() :
     def construct_initial_prompt(self, case: dict, top1_table_name: str, all_canonical_ids: List[str] = None) -> Any :
         query = case["question"]
         # 構建單表或多表的Markdown內容
-        def _table_markdown_from_cid(canonical_id: str) -> Tuple[str, str]:
-            name = canonical_id
-            cid = self.table_index.get_canonical_id(canonical_id) or canonical_id
-            preferred_excel = self.table_index.get_preferred_excel_file(cid)
-            markdown_text_local = "Can NOT find table content!"
-            if preferred_excel:
-                name = os.path.splitext(preferred_excel)[0]
-                stem, ext = os.path.splitext(preferred_excel)
-                csv_path = os.path.join(self.config.excel_dir, stem + ".csv")
-                if os.path.exists(csv_path):
-                    markdown_text_local = read_plain_csv(csv_path)
-                else:
-                    excel_path = os.path.join(self.config.excel_dir, preferred_excel)
-                    if os.path.exists(excel_path):
-                        markdown_text_local = excel_to_markdown(excel_path)
-            return name, markdown_text_local
 
         if all_canonical_ids and len(all_canonical_ids) > 1:
-            sections = []
-            for idx, cid in enumerate(all_canonical_ids, start=1):
-                name, md = _table_markdown_from_cid(cid)
-                sections.append(f"Table {idx} ({name})\n\n{md}")
-            combined_markdown = "\n\n---\n\n".join(sections)
+            combined_markdown = self._markdown_for_canonical_ids(all_canonical_ids)
+            combined_markdown = self._truncate_text(combined_markdown)
             # 在多表情境，明確要求：先分別分析，再彙總對比
             multi_table_instruction = (
                 "There are multiple tables provided above. First analyze each table independently, "
@@ -480,7 +573,8 @@ class TableRAG() :
             )
         else:
             # 單表情境（或未知），退化為原行為
-            name, markdown_text = _table_markdown_from_cid(top1_table_name)
+            markdown_text = self._markdown_for_canonical_ids([top1_table_name])
+            markdown_text = self._truncate_text(markdown_text)
             inital_prompt = SYSTEM_EXPLORE_PROMPT.format(query=query, table_content=markdown_text)
         logger.info(f"Inital prompt: {inital_prompt}")
 

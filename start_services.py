@@ -1,9 +1,5 @@
 #!/usr/bin/env python3
-"""
-TableRAG 服务启动脚本
-支持启动Flask SQL服务和FastAPI Web服务
-包含详细的错误检查和日志功能
-"""
+
 
 import os
 import sys
