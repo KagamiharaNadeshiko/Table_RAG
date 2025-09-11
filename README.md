@@ -42,7 +42,6 @@ docker exec -it tablerag_ollama ollama pull qwen2.5:7b
 
 - Swagger UI：`http://localhost:8000/docs`
 
-說明：Web 服務使用 FastAPI 的內建互動式文件。若需自訂或關閉文件路徑，可在 `apiserve/main.py` 裡建立 `FastAPI(...)` 時傳入參數 `docs_url`、`redoc_url`、`openapi_url`。
 
 - **更新與測試變更**
   - 只改了程式碼（.py / 模板 / 靜態檔）：通常 FastAPI 會熱重載，如未生效可重啟應用容器：
@@ -70,19 +69,22 @@ docker compose logs -f app | cat
 docker compose logs -f mysql | cat
 docker compose logs -f ollama | cat
 ```
-  ![1757585754212](image/README/1757585754212.png)
-  ![1757585765379](image/README/1757585765379.png)
-  ![1757585629889](image/README/1757585629889.png)
-  ![1757585642425](image/README/1757585642425.png)
-  ![1757585739426](image/README/1757585739426.png)
+**運行示例**
+![1757585754212](image/README/1757585754212.png)
+![1757585765379](image/README/1757585765379.png)
+![1757585629889](image/README/1757585629889.png)
+![1757585642425](image/README/1757585642425.png)
+![1757585739426](image/README/1757585739426.png)
 - **常見問題**
   - MySQL 尚未就緒導致應用啟動連線失敗：待 `tablerag_mysql` 就緒後執行 `docker compose restart app`。
   - LLM 404/逾時：確認 `tablerag_ollama` 運行且已拉取模型，並檢查 `OLLAMA_BASE_URL=http://ollama:11434` 已注入應用容器環境。
-  - 重建鏡像時安裝 `mysqlclient` 失敗（缺少系統相依如 `pkg-config`）：這屬於系統層依賴問題；若你需要重建（變更了 `requirements.txt` 或 `Dockerfile`），請先處理對應系統套件，或告知我我再提供最小調整方案。僅程式碼變更不需重建，因為已使用掛載卷。
+
 
 - **資料與模型路徑**
   - 已透過 volume 掛載 `online_inference/bge_models`、`offline_data_ingestion_and_query_interface/dataset`、`.../data/schema`、`logs` 等目錄，與程式碼中預設路徑一致。
   - MySQL 連線設定容器內以服務名 `mysql` 直連；如需修改密碼/資料庫名，請同步更新 `docker-compose.yml` 與 `offline_data_ingestion_and_query_interface/config/database_config.json`。
+
+
 
 
 ## TableRAG - 快速啟動指南

@@ -3,7 +3,6 @@
 
 ### 全域設計與共同概念
 
-- **應用版本**: 0.1.0（見 `apiserve/main.py` 與 `/health`）
 - **路由前綴**：
   - `cleanup`、`data`、`embeddings`、`tables`、`chat` 分別對應各自的 router
   - `health` 無額外前綴（直接 `/health`）
@@ -21,8 +20,8 @@
       "ended_at": <float 秒或 null>
     }
     ```
-- **全域設定合併（merge_config）**：
-  - 來源依序：`DEFAULTS`（內建） + `apiserve/config.json`（若存在） + 本次請求中的欄位（非 None）
+- **全域設定**：
+  - 來源依序：`DEFAULTS`（內建） + 本次請求中的欄位（非 None）
   - 內建 `DEFAULTS`：
     - `doc_dir`: `offline_data_ingestion_and_query_interface/data/schema`
     - `excel_dir`: `offline_data_ingestion_and_query_interface/dataset/dev_excel`
@@ -381,7 +380,7 @@ curl http://127.0.0.1:8000/data/tasks/<task_id>
 
 ---
 
-## 參考：CLI 工具（呼叫 API 的指令稿）
+## 參考：CLI 工具
 
 - `apiserve/cli/cleanup.py`：提交清理作業並可 `--wait` 等待完成
 - `apiserve/cli/embeddings.py`：提交建置/載入嵌入的任務並可 `--wait`
