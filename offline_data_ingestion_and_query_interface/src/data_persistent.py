@@ -24,6 +24,7 @@ except ImportError:
     from offline_data_ingestion_and_query_interface.src.common_utils import transfer_name, SCHEMA_DIR, sql_alchemy_helper, PROJECT_ROOT
 import hashlib
 from .log_service import logger
+import io
 
 # Optional: detect xlrd availability and version for better diagnostics
 try:
@@ -32,6 +33,44 @@ try:
 except Exception:
     _xlrd = None
     _XLRD_VERSION = None
+
+# Optional: msoffcrypto for encrypted Excel
+try:
+    import msoffcrypto
+except Exception:
+    msoffcrypto = None  # type: ignore
+
+
+def _is_zip_xlsx(path: str) -> bool:
+    """粗略判断文件是否为 ZIP 结构（xlsx 常见），用于误后缀 .xls 但实际是 .xlsx 的情况。"""
+    try:
+        with open(path, "rb") as f:
+            sig = f.read(4)
+            return sig == b"PK\x03\x04"
+    except Exception:
+        return False
+
+
+def _try_decrypt_excel_if_needed(path: str) -> io.BytesIO | None:
+    """尝试用 msoffcrypto 解密受保护的 Excel，成功返回解密后的 BytesIO，失败返回 None。
+    密码从环境变量 EXCEL_PASSWORD 读取。
+    """
+    if msoffcrypto is None:
+        return None
+    password = os.getenv("EXCEL_PASSWORD")
+    if not password:
+        return None
+    try:
+        with open(path, "rb") as f:
+            office_file = msoffcrypto.OfficeFile(f)
+            office_file.load_key(password=password)
+            out = io.BytesIO()
+            office_file.decrypt(out)
+            out.seek(0)
+            return out
+    except Exception as e:
+        logger.warning(f"msoffcrypto 解密失败: path={path}, error={e}")
+        return None
 
 
 def infer_and_convert(series):
@@ -184,6 +223,34 @@ def _read_excel_with_fallbacks(full_path: str, file_name: str) -> pd.DataFrame:
     # .xls
     # 1) 让 pandas 自选（有时环境已装好兼容版本）
     try:
+        # 1.00 若文件实为 HTML（常见“另存为 .xls”但实际是 HTML 表格），优先用 read_html 处理
+        try:
+            with open(full_path, "rb") as _fpeek:
+                head_bytes = _fpeek.read(2048)
+            if head_bytes.strip().startswith(b"<") or b"<table" in head_bytes.lower():
+                logger.info(f"检测到 .xls 可能为 HTML 表格，使用 pandas.read_html 解析: path={full_path}")
+                tables = pd.read_html(full_path)
+                if not tables:
+                    raise RuntimeError("read_html 未解析到任何表格")
+                return tables[0]
+        except Exception as html_e:
+            logger.debug(f"read_html 尝试失败或非 HTML：{html_e}")
+
+        # 1.0 如果实际是 .xlsx（zip 头），改用 openpyxl
+        if _is_zip_xlsx(full_path):
+            logger.info(f"检测到文件为 ZIP/xlsx 结构但扩展名为 .xls，改用 openpyxl: path={full_path}")
+            return pd.read_excel(full_path, engine='openpyxl')
+
+        # 1.1 如果可能加密，先尝试解密
+        decrypted = _try_decrypt_excel_if_needed(full_path)
+        if decrypted is not None:
+            # 尝试 xlrd 引擎（仅用于 .xls），否则交给 pandas 自动判断
+            if _xlrd is not None and _XLRD_VERSION and str(_XLRD_VERSION).split('.')[0].isdigit() and int(str(_XLRD_VERSION).split('.')[0]) < 2:
+                logger.info(f"使用 xlrd 读取已解密的 .xls BytesIO")
+                return pd.read_excel(decrypted, engine='xlrd')
+            logger.info(f"使用 pandas 默认引擎读取已解密的 .xls BytesIO")
+            return pd.read_excel(decrypted)
+
         logger.info(f"尝试使用默认引擎读取 .xls: path={full_path}")
         return pd.read_excel(full_path)  # engine=None
     except Exception as e:
@@ -262,9 +329,11 @@ def parse_excel_file_and_insert_to_db(excel_file_outer_dir: str):
     succeeded = []
     failed: dict[str, str] = {}
     schema_written_paths: list[str] = []
+    # 不再进行 .xls -> .xlsx 的自动转换，也不删除原始 .xls
 
     for file_name in tqdm(os.listdir(excel_file_outer_dir)):
-        if not (file_name.endswith('.xlsx') or file_name.endswith('.xls')):
+        lower_name = file_name.lower()
+        if not (lower_name.endswith('.xlsx') or lower_name.endswith('.xls')):
             continue
         full_path = os.path.join(excel_file_outer_dir, file_name)
         try:
@@ -284,7 +353,10 @@ def parse_excel_file_and_insert_to_db(excel_file_outer_dir: str):
             df_convert = transfer_df_columns(df_convert)
             logger.info(f"列清洗完成: {file_name}, columns_count={len(df_convert.columns)}, columns={list(df_convert.columns)}")
 
-            schema_dict, table_name = generate_schema_info(df_convert, file_name, file_content_hash)
+            # 直接使用原始文件名作为后续 schema/表名依据（不再转换为 .xlsx）
+            canonical_filename = file_name
+
+            schema_dict, table_name = generate_schema_info(df_convert, canonical_filename, file_content_hash)
             logger.info(f"生成 schema 信息: table_name={table_name}, columns={len(schema_dict.get('column_list', []))}")
 
             schema_path = f"{SCHEMA_DIR}/{table_name}.json"
@@ -305,7 +377,7 @@ def parse_excel_file_and_insert_to_db(excel_file_outer_dir: str):
             sql_alchemy_helper.insert_dataframe_batch(df_convert, table_name)
             logger.info(f"数据库写入完成: table={table_name}, rows={len(df_convert)}")
 
-            succeeded.append(file_name)
+            succeeded.append(canonical_filename)
             processed += 1
         except Exception as e:
             failed[file_name] = str(e)

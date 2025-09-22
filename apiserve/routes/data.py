@@ -52,9 +52,6 @@ def get_task(task_id: str):
     if not res:
         raise HTTPException(status_code=404, detail="task not found")
     return res
-
-
-
 @router.post("/upload")
 async def upload_excel(file: UploadFile = File(...), excel_dir: Optional[str] = Form(None)):
     # 解析配置，拿到目标根目录
@@ -66,7 +63,8 @@ async def upload_excel(file: UploadFile = File(...), excel_dir: Optional[str] = 
     # 保存上传的文件到 excel_dir 根目录
     os.makedirs(dest_root, exist_ok=True)
     safe_name = os.path.basename(file.filename)
-    if not (safe_name.endswith(".xlsx") or safe_name.endswith(".xls")):
+    lower_name = safe_name.lower()
+    if not (lower_name.endswith(".xlsx") or lower_name.endswith(".xls")):
         raise HTTPException(status_code=400, detail="Only .xlsx or .xls files are supported")
     saved_path = os.path.join(dest_root, safe_name)
     try:
@@ -78,6 +76,8 @@ async def upload_excel(file: UploadFile = File(...), excel_dir: Optional[str] = 
                 fout.write(chunk)
     finally:
         await file.close()
+
+    # 不再对 .xls 进行转换，保留原始文件
 
     # 提交异步任务：处理 excel_dir 根目录（新文件会被发现并导入）
     def task():
@@ -102,7 +102,8 @@ async def upload_excel_many(files: List[UploadFile] = File(...), excel_dir: Opti
     saved_paths = []
     for file in files:
         safe_name = os.path.basename(file.filename)
-        if not (safe_name.endswith(".xlsx") or safe_name.endswith(".xls")):
+        lower_name = safe_name.lower()
+        if not (lower_name.endswith(".xlsx") or lower_name.endswith(".xls")):
             await file.close()
             raise HTTPException(status_code=400, detail="Only .xlsx or .xls files are supported")
         saved_path = os.path.join(dest_root, safe_name)
@@ -115,6 +116,7 @@ async def upload_excel_many(files: List[UploadFile] = File(...), excel_dir: Opti
                     fout.write(chunk)
         finally:
             await file.close()
+        # 不再对 .xls 进行转换，保留原始文件
         saved_paths.append(saved_path)
 
     # 提交异步任务：处理 excel_dir 根目录（新文件会被发现并导入）
@@ -152,7 +154,8 @@ async def upload_and_rebuild(
 
     # 保存到 excel_dir 根目录
     safe_name = os.path.basename(file.filename)
-    if not (safe_name.endswith(".xlsx") or safe_name.endswith(".xls")):
+    lower_name = safe_name.lower()
+    if not (lower_name.endswith(".xlsx") or lower_name.endswith(".xls")):
         raise HTTPException(status_code=400, detail="Only .xlsx or .xls files are supported")
     saved_path = os.path.join(dest_root, safe_name)
     try:
@@ -164,6 +167,8 @@ async def upload_and_rebuild(
                 fout.write(chunk)
     finally:
         await file.close()
+
+    # 不再对 .xls 进行转换，保留原始文件
 
     # 读取用于构建嵌入的最终参数（含默认）
     final_doc_dir = cfg.get("doc_dir")
@@ -235,7 +240,8 @@ async def upload_and_rebuild_many(
     saved_paths = []
     for file in files:
         safe_name = os.path.basename(file.filename)
-        if not (safe_name.endswith(".xlsx") or safe_name.endswith(".xls")):
+        lower_name = safe_name.lower()
+        if not (lower_name.endswith(".xlsx") or lower_name.endswith(".xls")):
             await file.close()
             raise HTTPException(status_code=400, detail="Only .xlsx or .xls files are supported")
         saved_path = os.path.join(dest_root, safe_name)
@@ -248,6 +254,7 @@ async def upload_and_rebuild_many(
                     fout.write(chunk)
         finally:
             await file.close()
+        # 不再对 .xls 进行转换，保留原始文件
         saved_paths.append(saved_path)
 
     # 读取用于构建嵌入的最终参数（含默认）
