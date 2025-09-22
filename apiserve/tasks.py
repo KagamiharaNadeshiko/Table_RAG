@@ -2,6 +2,7 @@ import threading
 import uuid
 import time
 from typing import Any, Callable, Dict, Optional
+import traceback
 
 
 class TaskStatus:
@@ -48,8 +49,9 @@ class InMemoryTaskQueue:
                 record.status = TaskStatus.SUCCEEDED
                 record.ended_at = time.time()
         except Exception as e:
+            tb = traceback.format_exc()
             with self._lock:
-                record.error = str(e)
+                record.error = f"{e}\n{tb}"
                 record.status = TaskStatus.FAILED
                 record.ended_at = time.time()
 

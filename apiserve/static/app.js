@@ -53,7 +53,9 @@ $('#single-upload-form').addEventListener('submit', async(e) => {
         const done = await waitTaskUntilDone('data', info.task_id, (d) => {
             setProgress($('#single-upload-progress'), `任务状态：${d.status}`)
         })
-        setProgress($('#single-upload-progress'), `完成：${done.status}`)
+        const detail = done.error || done.result || null
+        const detailText = detail ? `\n详情：\n${JSON.stringify(detail, null, 2)}` : ''
+        setProgress($('#single-upload-progress'), `完成：${done.status}${detailText}`)
     } catch (err) {
         setProgress($('#single-upload-progress'), `错误：${err}`)
     }
@@ -77,7 +79,9 @@ $('#multi-upload-form').addEventListener('submit', async(e) => {
         const done = await waitTaskUntilDone('data', info.task_id, (d) => {
             setProgress($('#multi-upload-progress'), `任务状态：${d.status}`)
         })
-        setProgress($('#multi-upload-progress'), `完成：${done.status}`)
+        const detail = done.error || done.result || null
+        const detailText = detail ? `\n详情：\n${JSON.stringify(detail, null, 2)}` : ''
+        setProgress($('#multi-upload-progress'), `完成：${done.status}${detailText}`)
     } catch (err) {
         setProgress($('#multi-upload-progress'), `错误：${err}`)
     }
@@ -146,6 +150,30 @@ async function doCleanup(filename) {
 $('#do-cleanup').addEventListener('click', () => {
     const name = $('#cleanup-target').value.trim()
     doCleanup(name)
+})
+
+// Embedding - manual build
+$('#embed-form').addEventListener('submit', async(e) => {
+    e.preventDefault()
+    const payload = {
+        doc_dir: $('#embed-doc-dir').value.trim() || null,
+        excel_dir: $('#embed-excel-dir').value.trim() || null,
+        bge_dir: $('#embed-bge-dir').value.trim() || null,
+        save_path: $('#embed-save-path').value.trim() || null,
+        policy: $('#embed-policy').value.trim() || null,
+    }
+    setProgress($('#embed-progress'), '提交向量构建任务...')
+    const r = await fetch(`${apiBase}/embeddings/build`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+    if (!r.ok) { setProgress($('#embed-progress'), '提交失败'); return }
+    const info = await r.json()
+    try {
+        const done = await waitTaskUntilDone('embeddings', info.task_id, (d) => {
+            setProgress($('#embed-progress'), `任务状态：${d.status}`)
+        })
+        setProgress($('#embed-progress'), `完成：${done.status}`)
+    } catch (err) {
+        setProgress($('#embed-progress'), `错误：${err}`)
+    }
 })
 
 // Chat

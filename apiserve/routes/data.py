@@ -16,6 +16,22 @@ class ImportRequest(BaseModel):
     excel_dir: Optional[str] = None
 
 
+@router.get("/dirs")
+def get_dirs(excel_dir: Optional[str] = None, doc_dir: Optional[str] = None, bge_dir: Optional[str] = None, save_path: Optional[str] = None):
+    cfg = merge_config({
+        "excel_dir": excel_dir,
+        "doc_dir": doc_dir,
+        "bge_dir": bge_dir,
+        "embedding_save_path": save_path,
+    })
+    return {
+        "excel_dir": cfg.get("excel_dir"),
+        "doc_dir": cfg.get("doc_dir"),
+        "bge_dir": cfg.get("bge_dir"),
+        "embedding_save_path": cfg.get("embedding_save_path"),
+    }
+
+
 @router.post("/import")
 def run_import(req: ImportRequest):
     cfg = merge_config(req.dict())

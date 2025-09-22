@@ -15,7 +15,7 @@ def list_tables(doc_dir: str | None = None, excel_dir: str | None = None, includ
     schema_dir = cfg.get("doc_dir")
     tables: List[str] = []
     metas: List[dict] = []
-    if os.path.isdir(schema_dir):
+    if schema_dir and os.path.isdir(schema_dir):
         for filename in os.listdir(schema_dir):
             if filename.endswith(".json"):
                 stem = os.path.splitext(filename)[0]
@@ -37,7 +37,7 @@ def list_tables(doc_dir: str | None = None, excel_dir: str | None = None, includ
                             "original_filename": None,
                             "source_file_hash": None
                         })
-    result = {"tables": sorted(tables), "count": len(tables)}
+    result = {"tables": sorted(tables), "count": len(tables), "schema_dir": schema_dir}
     if include_meta:
         # Align metas to sorted order
         order = {t: i for i, t in enumerate(sorted(tables))}

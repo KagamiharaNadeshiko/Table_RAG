@@ -23,6 +23,15 @@ try:
 except ImportError:
     from offline_data_ingestion_and_query_interface.src.common_utils import transfer_name, SCHEMA_DIR, sql_alchemy_helper, PROJECT_ROOT
 import hashlib
+from .log_service import logger
+
+# Optional: detect xlrd availability and version for better diagnostics
+try:
+    import xlrd as _xlrd  # type: ignore
+    _XLRD_VERSION = getattr(_xlrd, "__version__", "unknown")
+except Exception:
+    _xlrd = None
+    _XLRD_VERSION = None
 
 
 def infer_and_convert(series):
@@ -157,15 +166,115 @@ def transfer_df_columns(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def _read_excel_with_fallbacks(full_path: str, file_name: str) -> pd.DataFrame:
+    """尽可能健壮地读取 Excel：
+    - .xlsx: 优先 openpyxl
+    - .xls: 依次尝试 pandas 默认(None) → xlrd → 手工 xlrd 解析 → 最后报出清晰提示
+    """
+    ext = os.path.splitext(file_name)[1].lower()
+    errors = []
+
+    if ext == '.xlsx':
+        try:
+            return pd.read_excel(full_path, engine='openpyxl')
+        except Exception as e:
+            logger.exception(f"读取 .xlsx 失败: path={full_path}, engine=openpyxl, error={e}")
+            raise
+
+    # .xls
+    # 1) 让 pandas 自选（有时环境已装好兼容版本）
+    try:
+        logger.info(f"尝试使用默认引擎读取 .xls: path={full_path}")
+        return pd.read_excel(full_path)  # engine=None
+    except Exception as e:
+        errors.append(f"默认引擎失败: {e}")
+        logger.warning(f"默认引擎读取 .xls 失败: path={full_path}, error={e}")
+
+    # 2) 明确尝试 xlrd
+    try:
+        if _xlrd is None:
+            raise RuntimeError("xlrd 未安装")
+        # xlrd>=2.0 移除了 xls 支持
+        if _XLRD_VERSION and str(_XLRD_VERSION).split('.')[0].isdigit() and int(str(_XLRD_VERSION).split('.')[0]) >= 2:
+            raise RuntimeError(f"xlrd 版本为 {_XLRD_VERSION}，不再支持 .xls（建议安装 xlrd==1.2.0）")
+        logger.info(f"尝试使用 xlrd 读取 .xls: path={full_path}, xlrd_version={_XLRD_VERSION}")
+        return pd.read_excel(full_path, engine='xlrd')
+    except Exception as e:
+        errors.append(f"xlrd 失败: {e}")
+        logger.warning(f"xlrd 读取 .xls 失败: path={full_path}, error={e}")
+
+    # 3) 使用 xlrd 手动解析为 DataFrame（兜底）
+    try:
+        if _xlrd is None:
+            raise RuntimeError("xlrd 未安装，无法进行手动解析")
+        if _XLRD_VERSION and str(_XLRD_VERSION).split('.')[0].isdigit() and int(str(_XLRD_VERSION).split('.')[0]) >= 2:
+            raise RuntimeError(f"xlrd 版本为 {_XLRD_VERSION}，不再支持 .xls 手动解析（建议安装 xlrd==1.2.0）")
+        logger.info(f"使用 xlrd 手动解析 .xls（兜底）: path={full_path}")
+        book = _xlrd.open_workbook(full_path, formatting_info=False)
+        sheet = book.sheet_by_index(0)
+        nrows = sheet.nrows
+        ncols = sheet.ncols
+        if nrows == 0:
+            raise RuntimeError("Excel 工作表为空")
+        header = [str(sheet.cell_value(0, c)).strip() for c in range(ncols)]
+        rows = []
+        for r in range(1, nrows):
+            row = [sheet.cell_value(r, c) for c in range(ncols)]
+            rows.append(row)
+        df = pd.DataFrame(rows, columns=header)
+        return df
+    except Exception as e:
+        errors.append(f"xlrd 手动解析失败: {e}")
+        logger.warning(f"xlrd 手动解析 .xls 失败: path={full_path}, error={e}")
+
+    # 汇总错误并给出指引
+    hint = (
+        "无法读取 .xls。请安装兼容版本的 xlrd：pip install xlrd==1.2.0\n"
+        f"错误详情：{' | '.join(errors)}"
+    )
+    logger.error(hint)
+    raise RuntimeError(hint)
+
+
 def parse_excel_file_and_insert_to_db(excel_file_outer_dir: str):
     if not os.path.exists(excel_file_outer_dir):
         raise FileNotFoundError(f"File not found: {excel_file_outer_dir}")
     
+    # 确保 schema 目录存在
+    if not os.path.exists(SCHEMA_DIR):
+        os.makedirs(SCHEMA_DIR)
+        logger.info(f"已创建 schema 目录: {SCHEMA_DIR}")
+    else:
+        logger.info(f"使用现有 schema 目录: {SCHEMA_DIR}")
+
+    # 记录导入的根目录信息
+    try:
+        abs_excel_dir = os.path.abspath(excel_file_outer_dir)
+    except Exception:
+        abs_excel_dir = excel_file_outer_dir
+    try:
+        abs_schema_dir = os.path.abspath(SCHEMA_DIR)
+    except Exception:
+        abs_schema_dir = SCHEMA_DIR
+    logger.info(f"开始导入 Excel 目录: excel_dir={abs_excel_dir}, schema_dir={abs_schema_dir}")
+
+    processed = 0
+    succeeded = []
+    failed: dict[str, str] = {}
+    schema_written_paths: list[str] = []
 
     for file_name in tqdm(os.listdir(excel_file_outer_dir)):
-        if file_name.endswith('.xlsx') or file_name.endswith('.xls'):
-            full_path = os.path.join(excel_file_outer_dir, file_name)
-            df = pd.read_excel(full_path)
+        if not (file_name.endswith('.xlsx') or file_name.endswith('.xls')):
+            continue
+        full_path = os.path.join(excel_file_outer_dir, file_name)
+        try:
+            file_size = os.path.getsize(full_path)
+        except Exception:
+            file_size = -1
+        logger.info(f"开始处理: path={full_path}, size={file_size} bytes")
+        try:
+            df = _read_excel_with_fallbacks(full_path, file_name)
+            logger.info(f"读取完成: {file_name}, shape={getattr(df, 'shape', None)}")
             
             # 计算文件内容的哈希值，确保唯一性
             file_content = df.to_string()
@@ -173,17 +282,48 @@ def parse_excel_file_and_insert_to_db(excel_file_outer_dir: str):
             
             df_convert = df.apply(infer_and_convert)
             df_convert = transfer_df_columns(df_convert)
+            logger.info(f"列清洗完成: {file_name}, columns_count={len(df_convert.columns)}, columns={list(df_convert.columns)}")
 
             schema_dict, table_name = generate_schema_info(df_convert, file_name, file_content_hash)
+            logger.info(f"生成 schema 信息: table_name={table_name}, columns={len(schema_dict.get('column_list', []))}")
 
-            # 确保目录存在
-            if not os.path.exists(SCHEMA_DIR):
-                os.makedirs(SCHEMA_DIR)
-
-            with open(f"{SCHEMA_DIR}/{table_name}.json", 'w', encoding='utf-8') as f:
-                json.dump(schema_dict, f, ensure_ascii=False)
+            schema_path = f"{SCHEMA_DIR}/{table_name}.json"
+            try:
+                with open(schema_path, 'w', encoding='utf-8') as f:
+                    json.dump(schema_dict, f, ensure_ascii=False)
+                # 写入后校验文件是否存在且非空
+                exists = os.path.exists(schema_path)
+                size = os.path.getsize(schema_path) if exists else 0
+                if not exists or size == 0:
+                    raise IOError(f"schema 文件校验失败: exists={exists}, size={size}")
+                logger.info(f"Schema 已写入: {schema_path}, size={size} bytes")
+                schema_written_paths.append(os.path.abspath(schema_path))
+            except Exception as write_err:
+                raise RuntimeError(f"写入 schema 失败: path={schema_path}, error={write_err}")
             
+            # 插入数据库
             sql_alchemy_helper.insert_dataframe_batch(df_convert, table_name)
+            logger.info(f"数据库写入完成: table={table_name}, rows={len(df_convert)}")
+
+            succeeded.append(file_name)
+            processed += 1
+        except Exception as e:
+            failed[file_name] = str(e)
+            logger.exception(f"处理失败: file={file_name}, error={e}")
+            processed += 1
+            # 不中断，继续处理其他文件
+            continue
+
+    summary = {
+        "processed": processed,
+        "succeeded": succeeded,
+        "failed": failed,
+        "schema_dir": SCHEMA_DIR,
+        "excel_dir": excel_file_outer_dir,
+        "schema_written": schema_written_paths,
+    }
+    logger.info(f"导入完成: {json.dumps(summary, ensure_ascii=False)}")
+    return summary
 
 
 if __name__ == "__main__":

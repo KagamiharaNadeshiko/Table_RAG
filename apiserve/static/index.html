@@ -45,6 +45,29 @@
                 <button type="submit">上传并导入</button>
             </form>
             <div class="progress" id="multi-upload-progress"></div>
+
+            <hr />
+
+            <h3>手动 Embedding</h3>
+            <form id="embed-form">
+                <label>Schema 目录（可选）
+            <input type="text" id="embed-doc-dir" placeholder="offline_data_ingestion_and_query_interface/data/schema" />
+          </label>
+                <label>Excel 目录（可选）
+            <input type="text" id="embed-excel-dir" placeholder="offline_data_ingestion_and_query_interface/dataset/dev_excel" />
+          </label>
+                <label>BGE 目录（可选）
+            <input type="text" id="embed-bge-dir" placeholder="online_inference/bge_models" />
+          </label>
+                <label>保存路径（可选）
+            <input type="text" id="embed-save-path" placeholder="online_inference/embedding.pkl" />
+          </label>
+                <label>策略（可选）
+            <input type="text" id="embed-policy" placeholder="rebuild | build_if_missing | load_only" />
+          </label>
+                <button type="submit" id="do-embed">手动构建向量</button>
+            </form>
+            <div class="progress" id="embed-progress"></div>
         </section>
 
         <section id="tab-files" class="tab">

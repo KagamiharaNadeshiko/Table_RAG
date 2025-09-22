@@ -2,7 +2,7 @@ import os
 import sys
 import json
 import argparse
-from typing import List, Tuple, Dict, Set
+from typing import List, Tuple, Dict, Set, Optional
 
 from offline_data_ingestion_and_query_interface.src.common_utils import SCHEMA_DIR, transfer_name, sql_alchemy_helper, PROJECT_ROOT
 from offline_data_ingestion_and_query_interface.src.log_service import logger
@@ -69,29 +69,40 @@ def list_matching_excel_files(original_targets: List[str]) -> List[str]:
     return results
 
 
-def resolve_table_names_from_schema_files(schema_files: List[str]) -> Tuple[Set[str], Dict[str, str], List[str]]:
+def resolve_table_names_from_schema_files(
+    schema_files: List[str],
+    allowed_original_filenames: Optional[Set[str]] = None,
+) -> Tuple[Set[str], Dict[str, str], List[str], List[str]]:
     """
     Read each schema JSON and extract table_name.
-    Returns (table_names_set, file_to_table_name_map, failed_files)
+    If allowed_original_filenames is provided, only keep schema whose
+    original_filename is in the allowed set.
+    Returns (table_names_set, file_to_table_name_map, failed_files, filtered_schema_files)
     """
     table_names: Set[str] = set()
     mapping: Dict[str, str] = {}
     failed: List[str] = []
+    filtered_schema_files: List[str] = []
 
     for path in schema_files:
         try:
             with open(path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
             table_name = data.get('table_name')
+            original_filename = data.get('original_filename')
             if not table_name:
                 raise ValueError('Missing table_name in schema JSON')
+            if allowed_original_filenames is not None and original_filename not in allowed_original_filenames:
+                # Skip schemas that do not belong to requested Excel filenames
+                continue
             mapping[path] = table_name
             table_names.add(table_name)
+            filtered_schema_files.append(path)
         except Exception as e:
             logger.error(f"Failed to read schema file {path}: {e}")
             failed.append(path)
 
-    return table_names, mapping, failed
+    return table_names, mapping, failed, filtered_schema_files
 
 
 def drop_tables(table_names: Set[str]) -> Tuple[List[str], List[Tuple[str, str]]]:
@@ -176,7 +187,7 @@ def run_cleanup(targets: List[str], assume_yes: bool, dry_run: bool) -> int:
     normalized = [normalize_excel_filename(t) for t in targets]
     base_names = [get_base_table_name_from_excel(t) for t in normalized]
 
-    # gather all matching schema files
+    # gather all matching schema files (by base prefix)
     all_schema_files: List[str] = []
     for base in base_names:
         matches = list_matching_schema_files(base)
@@ -193,9 +204,13 @@ def run_cleanup(targets: List[str], assume_yes: bool, dry_run: bool) -> int:
             dedup_schema_files.append(p)
             seen.add(p)
 
-    table_names, file_to_table, failed_files = resolve_table_names_from_schema_files(dedup_schema_files)
+    # Only keep schemas whose original_filename exactly matches requested targets
+    allowed_originals: Set[str] = set(normalized)
+    table_names, file_to_table, failed_files, filtered_schema_files = resolve_table_names_from_schema_files(
+        dedup_schema_files, allowed_original_filenames=allowed_originals
+    )
 
-    present_plan(normalized, base_names, dedup_schema_files, file_to_table, excel_files)
+    present_plan(normalized, base_names, filtered_schema_files, file_to_table, excel_files)
 
     if dry_run:
         print("Dry-run enabled. No changes were made.")
@@ -206,7 +221,7 @@ def run_cleanup(targets: List[str], assume_yes: bool, dry_run: bool) -> int:
         return 1
 
     dropped, drop_errors = drop_tables(table_names)
-    removed, remove_errors = remove_files(dedup_schema_files)
+    removed, remove_errors = remove_files(filtered_schema_files)
     removed_excels, remove_excel_errors = remove_files(excel_files)
 
     print("=== Summary ===")
