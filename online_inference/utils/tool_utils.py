@@ -1,5 +1,7 @@
 import sys
 from openpyxl import load_workbook
+import os
+import pandas as pd
 import torch
 from typing import Union, List, Tuple
 from transformers import AutoTokenizer, AutoModel, AutoModelForSequenceClassification
@@ -147,26 +149,55 @@ class Reranker :
         return all_scores
     
 def excel_to_markdown(file_path) :
-    workbook = load_workbook(file_path)
-
+    ext = os.path.splitext(file_path)[1].lower()
     content = ""
-    file_name = file_path.split("/")[-1]
-    table_name = file_name.replace(".xlsx", "")
+    file_name = os.path.basename(file_path)
+    table_name = os.path.splitext(file_name)[0]
     content += f"Table name: {table_name}\n"
-    for sheet_name in workbook.sheetnames :
-        work_sheet = workbook[sheet_name]
-        row_count = 0
-        for i, row in enumerate(work_sheet) :
-            columns = []
-            for column in row :
-                if column.value is None :
-                    continue
-                columns.append(column.value)
 
-            content += " | " + " | ".join([str(col) for col in columns]) + " | \n"
-            if i == 0 :
-                content += " | " + " | ".join(["---"]*len(columns)) + " | \n"
-            row_count += 1
+    if ext == ".xlsx":
+        workbook = load_workbook(file_path)
+        for sheet_name in workbook.sheetnames :
+            work_sheet = workbook[sheet_name]
+            for i, row in enumerate(work_sheet) :
+                columns = []
+                for column in row :
+                    if column.value is None :
+                        continue
+                    columns.append(column.value)
+                content += " | " + " | ".join([str(col) for col in columns]) + " | \n"
+                if i == 0 :
+                    content += " | " + " | ".join(["---"]*len(columns)) + " | \n"
+        return content
+
+    if ext == ".xls":
+        # Strictly parse via xlrd engine through pandas
+        df_dict = pd.read_excel(file_path, sheet_name=None, engine="xlrd")
+        for sheet, df in df_dict.items():
+            if df is None or df.empty:
+                continue
+            # Emit header
+            header = list(df.columns)
+            content += " | " + " | ".join([str(h) for h in header]) + " | \n"
+            content += " | " + " | ".join(["---"]*len(header)) + " | \n"
+            # Emit up to first 50 rows to avoid huge output
+            for _, row in df.iloc[:50].iterrows():
+                values = [str(x) if x is not None else "" for x in row.tolist()]
+                content += " | " + " | ".join(values) + " | \n"
+        return content
+
+    # Fallback: try CSV-like via pandas for unknown extensions
+    try:
+        df = pd.read_csv(file_path)
+        header = list(df.columns)
+        content += " | " + " | ".join([str(h) for h in header]) + " | \n"
+        content += " | " + " | ".join(["---"]*len(header)) + " | \n"
+        for _, row in df.iloc[:50].iterrows():
+            values = [str(x) if x is not None else "" for x in row.tolist()]
+            content += " | " + " | ".join(values) + " | \n"
+        return content
+    except Exception:
+        pass
     return content
 
 

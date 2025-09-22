@@ -220,79 +220,27 @@ def _read_excel_with_fallbacks(full_path: str, file_name: str) -> pd.DataFrame:
             logger.exception(f"读取 .xlsx 失败: path={full_path}, engine=openpyxl, error={e}")
             raise
 
-    # .xls
-    # 1) 让 pandas 自选（有时环境已装好兼容版本）
+    # .xls 强制仅走 xlrd
     try:
-        # 1.00 若文件实为 HTML（常见“另存为 .xls”但实际是 HTML 表格），优先用 read_html 处理
-        try:
-            with open(full_path, "rb") as _fpeek:
-                head_bytes = _fpeek.read(2048)
-            if head_bytes.strip().startswith(b"<") or b"<table" in head_bytes.lower():
-                logger.info(f"检测到 .xls 可能为 HTML 表格，使用 pandas.read_html 解析: path={full_path}")
-                tables = pd.read_html(full_path)
-                if not tables:
-                    raise RuntimeError("read_html 未解析到任何表格")
-                return tables[0]
-        except Exception as html_e:
-            logger.debug(f"read_html 尝试失败或非 HTML：{html_e}")
-
-        # 1.0 如果实际是 .xlsx（zip 头），改用 openpyxl
-        if _is_zip_xlsx(full_path):
-            logger.info(f"检测到文件为 ZIP/xlsx 结构但扩展名为 .xls，改用 openpyxl: path={full_path}")
-            return pd.read_excel(full_path, engine='openpyxl')
-
-        # 1.1 如果可能加密，先尝试解密
+        # 若可能加密，尝试解密后用 xlrd 读取 BytesIO
         decrypted = _try_decrypt_excel_if_needed(full_path)
         if decrypted is not None:
-            # 尝试 xlrd 引擎（仅用于 .xls），否则交给 pandas 自动判断
-            if _xlrd is not None and _XLRD_VERSION and str(_XLRD_VERSION).split('.')[0].isdigit() and int(str(_XLRD_VERSION).split('.')[0]) < 2:
-                logger.info(f"使用 xlrd 读取已解密的 .xls BytesIO")
-                return pd.read_excel(decrypted, engine='xlrd')
-            logger.info(f"使用 pandas 默认引擎读取已解密的 .xls BytesIO")
-            return pd.read_excel(decrypted)
+            if _xlrd is None:
+                raise RuntimeError("xlrd 未安装")
+            if _XLRD_VERSION and str(_XLRD_VERSION).split('.')[0].isdigit() and int(str(_XLRD_VERSION).split('.')[0]) >= 2:
+                raise RuntimeError(f"xlrd 版本为 {_XLRD_VERSION}，不再支持 .xls（请安装 xlrd==1.2.0）")
+            logger.info(f"使用 xlrd 读取已解密的 .xls BytesIO")
+            return pd.read_excel(decrypted, engine='xlrd')
 
-        logger.info(f"尝试使用默认引擎读取 .xls: path={full_path}")
-        return pd.read_excel(full_path)  # engine=None
-    except Exception as e:
-        errors.append(f"默认引擎失败: {e}")
-        logger.warning(f"默认引擎读取 .xls 失败: path={full_path}, error={e}")
-
-    # 2) 明确尝试 xlrd
-    try:
         if _xlrd is None:
             raise RuntimeError("xlrd 未安装")
-        # xlrd>=2.0 移除了 xls 支持
         if _XLRD_VERSION and str(_XLRD_VERSION).split('.')[0].isdigit() and int(str(_XLRD_VERSION).split('.')[0]) >= 2:
-            raise RuntimeError(f"xlrd 版本为 {_XLRD_VERSION}，不再支持 .xls（建议安装 xlrd==1.2.0）")
-        logger.info(f"尝试使用 xlrd 读取 .xls: path={full_path}, xlrd_version={_XLRD_VERSION}")
+            raise RuntimeError(f"xlrd 版本为 {_XLRD_VERSION}，不再支持 .xls（请安装 xlrd==1.2.0）")
+        logger.info(f"严格模式：使用 xlrd 读取 .xls: path={full_path}, xlrd_version={_XLRD_VERSION}")
         return pd.read_excel(full_path, engine='xlrd')
     except Exception as e:
         errors.append(f"xlrd 失败: {e}")
-        logger.warning(f"xlrd 读取 .xls 失败: path={full_path}, error={e}")
-
-    # 3) 使用 xlrd 手动解析为 DataFrame（兜底）
-    try:
-        if _xlrd is None:
-            raise RuntimeError("xlrd 未安装，无法进行手动解析")
-        if _XLRD_VERSION and str(_XLRD_VERSION).split('.')[0].isdigit() and int(str(_XLRD_VERSION).split('.')[0]) >= 2:
-            raise RuntimeError(f"xlrd 版本为 {_XLRD_VERSION}，不再支持 .xls 手动解析（建议安装 xlrd==1.2.0）")
-        logger.info(f"使用 xlrd 手动解析 .xls（兜底）: path={full_path}")
-        book = _xlrd.open_workbook(full_path, formatting_info=False)
-        sheet = book.sheet_by_index(0)
-        nrows = sheet.nrows
-        ncols = sheet.ncols
-        if nrows == 0:
-            raise RuntimeError("Excel 工作表为空")
-        header = [str(sheet.cell_value(0, c)).strip() for c in range(ncols)]
-        rows = []
-        for r in range(1, nrows):
-            row = [sheet.cell_value(r, c) for c in range(ncols)]
-            rows.append(row)
-        df = pd.DataFrame(rows, columns=header)
-        return df
-    except Exception as e:
-        errors.append(f"xlrd 手动解析失败: {e}")
-        logger.warning(f"xlrd 手动解析 .xls 失败: path={full_path}, error={e}")
+        logger.warning(f"严格模式 xlrd 读取 .xls 失败: path={full_path}, error={e}")
 
     # 汇总错误并给出指引
     hint = (
@@ -324,6 +272,7 @@ def parse_excel_file_and_insert_to_db(excel_file_outer_dir: str):
     except Exception:
         abs_schema_dir = SCHEMA_DIR
     logger.info(f"开始导入 Excel 目录: excel_dir={abs_excel_dir}, schema_dir={abs_schema_dir}")
+
 
     processed = 0
     succeeded = []

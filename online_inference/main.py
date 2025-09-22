@@ -101,15 +101,17 @@ class TableRAG() :
                             repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
                             offline_default = os.path.join(repo_root, "offline_data_ingestion_and_query_interface", "dataset", "dev_excel", original_filename)
                             candidate_paths.append(offline_default)
-                            # 4) also try _sheet1.xlsx naming convention
-                            candidate_paths.append(os.path.join(self.config.excel_dir, os.path.splitext(original_filename)[0] + "_sheet1.xlsx"))
+                            # 4) also try _sheet1 naming convention for both xlsx and xls
+                            base = os.path.splitext(original_filename)[0]
+                            candidate_paths.append(os.path.join(self.config.excel_dir, base + "_sheet1.xlsx"))
+                            candidate_paths.append(os.path.join(self.config.excel_dir, base + "_sheet1.xls"))
                             for p in candidate_paths:
                                 if not p:
                                     continue
                                 if p.lower().endswith(".csv") and os.path.exists(p):
                                     markdown_text_local = read_plain_csv(p)
                                     break
-                                if p.lower().endswith((".xlsx")) and os.path.exists(p):
+                                if p.lower().endswith((".xlsx", ".xls")) and os.path.exists(p):
                                     markdown_text_local = excel_to_markdown(p)
                                     break
                 except Exception:
@@ -167,10 +169,17 @@ class TableRAG() :
         Find the excel file according to json file.
         """
         if "json" in doc_name :
-            table_file_name = doc_name.replace("json", "xlsx")
-        if os.path.exists() :
-            run_name = doc_name.replace(".json", "_sheet1.xlsx")
-            return f"[\"{run_name}\"]"
+            # Prefer original stem, try both xlsx and xls without conversion
+            base = doc_name.replace(".json", "")
+            candidates = [
+                f"{base}_sheet1.xlsx",
+                f"{base}_sheet1.xls",
+                f"{base}.xlsx",
+                f"{base}.xls",
+            ]
+            for p in candidates:
+                if os.path.exists(p):
+                    return f"[\"{p}\"]"
         return ""
 
     def create_tools(self) :

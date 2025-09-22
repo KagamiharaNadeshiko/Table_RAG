@@ -138,8 +138,8 @@ def print_available_tables(agent):
         # 從excel目錄獲取表格
         if os.path.exists(excel_dir):
             for file in os.listdir(excel_dir):
-                if file.endswith(('.xlsx', '.csv')):
-                    table_name = file.replace('.xlsx', '').replace('.csv', '')
+                if file.endswith(('.xlsx', '.xls', '.csv')):
+                    table_name = file.replace('.xlsx', '').replace('.xls', '').replace('.csv', '')
                     if table_name not in tables:
                         tables.append(table_name)
         
